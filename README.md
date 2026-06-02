@@ -1,140 +1,252 @@
 # 机器人数据采集平台
 
-这是一个本地运行的机器人数据采集系统，包含 C++ 后端服务、Web 前端、相机/夹爪设备接入、数据录制、历史数据管理，以及 LeRobot/HDF5/RLDS 数据转换脚本。
+这是一个用于机器人操作数据采集的本地软件系统。项目可以同时管理多路相机、手动夹爪、电动夹爪，支持实时预览、数据录制、历史数据管理，以及 LeRobot、HDF5、RLDS 数据格式转换。
 
-当前主版本面向 **Windows 10/11 x64**。工程里保留了部分 Linux SDK 目录，但现有串口、GCAN、运行时 DLL 和部分设备逻辑仍以 Windows 为主，Linux 版本需要后续单独适配设备驱动层。
+项目运行后会启动一个本地 Web 服务，浏览器打开页面即可操作，不需要额外安装前端环境。
 
-## 功能概览
+默认访问地址：
 
-- 多相机预览：海康 MVS 工业相机、Orbbec Gemini 305。
-- Orbbec 数据：彩色、深度、红外、点云。
-- UMI 手动夹爪：位置、按钮、LED、录制联动。
-- GCAN 电动夹爪：使能、位置、速度、电流、MIT、急停。
-- 剪刀石头布：浏览器 UVC 相机识别手势，联动电动夹爪出拳。
-- 数据采集：视频、点云、夹爪 CSV、统一时间戳、metadata。
-- 数据转换：LeRobot、HDF5、RLDS/TFRecord。
-- 数据管理：历史会话查看、删除、转换状态查看。
+```text
+http://localhost:8080
+```
 
-## 推荐目录结构
+## 1. 项目能做什么
 
-仓库应保留这些目录和文件：
+本项目主要用于采集机器人模仿学习、强化学习或数据分析所需的数据。
+
+支持功能：
+
+- 多相机设备检测和实时预览。
+- 海康工业相机彩色视频采集。
+- Orbbec 奥比中光相机彩色、深度、红外、点云采集。
+- UMI 手动夹爪位置、按钮、LED 状态采集。
+- GCAN 电动夹爪位置、速度、电流、温度、错误码控制和采集。
+- 数据采集开始、停止、保存、历史记录查看和删除。
+- 视频帧、夹爪数据、点云数据统一时间戳记录。
+- 原始数据转换为 LeRobot、HDF5、RLDS。
+- 剪刀石头布功能：使用 IMX335/UVC 相机识别手势，并联动电动夹爪出拳。
+
+## 2. 当前支持的系统
+
+当前主版本支持：
+
+```text
+Windows 10 / Windows 11 64 位
+```
+
+推荐运行环境：
+
+```text
+CPU: i5 / Ryzen 5 及以上
+内存: 16 GB 及以上
+USB: 推荐 USB 3.0，多个相机尽量直连主机
+硬盘: 根据采集数据量准备足够空间，建议 SSD
+```
+
+说明：
+
+- 当前工程以 Windows 为主。
+- 代码中包含部分 Linux SDK 文件目录，但串口、GCAN、部分设备驱动逻辑仍绑定 Windows。
+- 如果后续要做 Linux 版本，建议保留同一套前端和数据格式，单独适配设备驱动层。
+
+## 3. 支持的硬件
+
+| 类型 | 当前使用/支持型号 | 用途 | 接入方式 |
+| --- | --- | --- | --- |
+| 奥比中光相机 | Orbbec Gemini 305 | 彩色、深度、红外、点云 | Orbbec SDK |
+| 海康工业相机 | Hikvision MVS 工业相机 | 彩色视频采集 | 海康 MVS SDK |
+| 手动夹爪 | UMI 手动夹爪 | 位置、按钮、LED、录制联动 | USB 串口 |
+| 电动夹爪 | CAN 电动夹爪 | 位置、速度、电流、MIT、急停 | GCAN USBCAN |
+| 手势相机 | IMX335 UVC 相机 | 剪刀石头布手势识别 | 浏览器摄像头 API |
+
+电动夹爪当前统一行程：
+
+```text
+0°    = 最大打开，代表“布”
+4500° = 最小捏合，代表“拳头”
+1800° 和 3600° 之间往返 = 代表“剪刀”
+```
+
+## 4. 项目目录说明
+
+拉取项目后，主要目录如下：
 
 ```text
 ManualGripper/
-├─ CMakeLists.txt
-├─ config.json
-├─ requirements.txt
-├─ collect_dlls.ps1
-├─ setup_orbbec_sdk.ps1
-├─ README.md
-├─ docs/
-├─ frontend/
-├─ include/
-├─ src/
-├─ tools/
-└─ lib/
-   ├─ gcan/
-   ├─ hikvision/
-   ├─ orbbec/
-   └─ umi/
+├─ CMakeLists.txt              # C++ 构建配置
+├─ config.json                 # 默认运行配置
+├─ requirements.txt            # Python 转换脚本依赖
+├─ README.md                   # 项目说明和部署手册
+├─ collect_dlls.ps1            # DLL 收集脚本
+├─ setup_orbbec_sdk.ps1        # Orbbec SDK 辅助脚本
+├─ docs/                       # 更详细的文档
+├─ frontend/                   # Web 前端页面
+├─ include/                    # C++ 头文件
+├─ src/                        # C++ 后端源码
+├─ tools/                      # 数据转换脚本
+└─ lib/                        # 硬件 SDK 和运行库
 ```
 
-我没有提交到 Git 的内容：
+运行或采集后会生成：
 
-- `build/`：构建产物、exe、DLL、日志，可重新生成。
-- `data_capture/`：采集得到的原始数据，通常很大。
-- `data_converted/`：转换后的训练数据，通常很大。
-- `__pycache__/`、`*.pyc`、`*.log`、临时输出文件。
+```text
+build/                         # 编译后的程序和 DLL
+data_capture/                  # 原始采集数据
+data_converted/                # 转换后的训练数据
+```
 
-## 依赖说明
+这三个目录通常不提交到 Git，因为它们可以重新生成，或者数据量很大。
 
-### 必需软件
+## 5. 直接拉取项目
 
-1. Windows 10/11 x64。
-2. MSYS2，推荐安装在 `C:\msys64`。
-3. MinGW64 工具链、CMake、OpenCV、Eigen3。
-4. Python 3 和转换脚本依赖。
+如果你是第一次使用，先安装 Git，然后执行：
 
-MSYS2 MINGW64 终端里安装 C++ 依赖：
+```bash
+git clone <仓库地址> ManualGripper
+cd ManualGripper
+```
+
+如果已经拉取过，以后更新代码：
+
+```bash
+cd ManualGripper
+git pull
+```
+
+建议项目放在英文路径，例如：
+
+```text
+C:\Robot\ManualGripper
+```
+
+不建议放在太深、带特殊字符或权限复杂的目录下。
+
+## 6. 新电脑从零部署
+
+下面按一台全新 Windows 电脑来写。
+
+### 6.1 安装 MSYS2
+
+1. 打开官网下载安装：
+
+```text
+https://www.msys2.org
+```
+
+2. 安装路径建议保持默认：
+
+```text
+C:\msys64
+```
+
+3. 打开“MSYS2 MINGW64”终端，执行：
 
 ```bash
 pacman -Syu
+```
+
+如果提示关闭窗口，就关闭终端，重新打开“MSYS2 MINGW64”，再执行一次：
+
+```bash
+pacman -Syu
+```
+
+### 6.2 安装 C++ 编译环境
+
+在“MSYS2 MINGW64”终端执行：
+
+```bash
 pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make mingw-w64-x86_64-opencv mingw-w64-x86_64-eigen3 mingw-w64-x86_64-python
 ```
 
-安装 Python 依赖：
+安装完成后检查：
+
+```bash
+g++ --version
+cmake --version
+python --version
+```
+
+能看到版本号就说明安装成功。
+
+### 6.3 安装 Python 依赖
+
+进入项目目录后执行：
 
 ```bash
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-### 硬件 SDK
+`requirements.txt` 中包含数据转换常用依赖：
 
-工程按下面路径查找 SDK：
+```text
+numpy
+pyarrow
+h5py
+crcmod
+```
+
+### 6.4 安装硬件驱动
+
+根据实际设备安装，不用的设备可以先跳过。
+
+#### 海康工业相机
+
+1. 安装海康 MVS 客户端和驱动。
+2. 打开 MVS 客户端，确认相机能看到画面。
+3. 项目中需要以下文件存在：
 
 ```text
 lib/hikvision/include
 lib/hikvision/lib/win64/MvCameraControl.lib
-lib/orbbec/include
-lib/orbbec/lib/win64/OrbbecSDK.dll
-lib/gcan/ECanVci64.dll
-lib/gcan/CHUSBDLL64.dll
-lib/umi/
+lib/hikvision/lib/win64/MvCameraControl.dll
 ```
 
-如果仓库里已经带了这些 SDK 文件，别人拉取后只需要安装对应厂商驱动即可。  
-如果因为授权或体积原因不提交 SDK，请保留目录结构，并让使用者从厂商 SDK 复制文件到上述位置。
+#### Orbbec Gemini 305
 
-## 从零部署
-
-### 1. 拉取项目
-
-```bash
-git clone <你的仓库地址> ManualGripper
-cd ManualGripper
-```
-
-建议把工程放在英文路径，例如：
+1. 安装 Orbbec Viewer 或 Orbbec SDK。
+2. 用 Orbbec Viewer 确认彩色、深度能正常打开。
+3. 项目中需要以下目录存在：
 
 ```text
-C:\Robot\ManualGripper
+lib/orbbec/include
+lib/orbbec/lib/win64
 ```
 
-### 2. 安装硬件驱动
+#### UMI 手动夹爪
 
-- 海康相机：安装 Hikvision MVS 客户端和驱动。
-- Orbbec 相机：安装 Orbbec Viewer/SDK/驱动。
-- UMI 手动夹爪：插入后确认设备管理器能看到 COM 口。
-- GCAN 电动夹爪：安装 USBCAN 驱动，确认 CAN 线、电源、终端电阻和电机 ID。
-- IMX335：作为 UVC 摄像头使用，先用 Windows 相机 App 确认能打开。
+1. 插入 USB。
+2. 打开 Windows 设备管理器。
+3. 确认能看到 COM 口。
+4. 如果没有 COM 口，先安装对应 USB 串口驱动。
 
-### 3. 检查配置
+#### GCAN 电动夹爪
 
-默认配置在 `config.json`：
+1. 安装 GCAN USBCAN 驱动。
+2. 确认 CAN 适配器连接正常。
+3. 确认电动夹爪电源、CANH/CANL、终端电阻连接正确。
+4. 项目中需要以下文件存在：
 
-```json
-{
-  "server": { "port": 8080 },
-  "paths": {
-    "frontendDir": "frontend",
-    "dataDir": "data_capture",
-    "convertOutputDir": "data_converted",
-    "convertScript": "tools/convert_to_lerobot.py"
-  }
-}
+```text
+lib/gcan/ECanVci64.dll
+lib/gcan/CHUSBDLL64.dll
 ```
 
-常用调整：
+#### IMX335 相机
 
-- 端口冲突：修改 `server.port`。
-- 数据盘空间不足：修改 `paths.dataDir` 和 `paths.convertOutputDir`。
-- 三路海康卡顿：降低 `camera.maxWidth`、`camera.maxHeight` 或 `camera.fps`。
-- 预览压力大：降低 `stream.streamMaxWidth` 或 `stream.jpegQuality`。
+IMX335 按普通 UVC 摄像头处理：
 
-### 4. 编译
+1. 插入电脑。
+2. 打开 Windows 自带“相机”App。
+3. 能看到画面即可。
+4. 在剪刀石头布页面第一次使用时，浏览器会询问摄像头权限，点击允许。
 
-MSYS2 MINGW64 终端：
+## 7. 编译项目
+
+### 方法一：MSYS2 MINGW64 编译
+
+打开“MSYS2 MINGW64”终端：
 
 ```bash
 cd /c/Robot/ManualGripper
@@ -144,7 +256,11 @@ cmake .. -G "MinGW Makefiles"
 mingw32-make -j4
 ```
 
-PowerShell：
+如果你的项目不在 `C:\Robot\ManualGripper`，把路径换成自己的路径。
+
+### 方法二：PowerShell 编译
+
+打开 PowerShell：
 
 ```powershell
 cd C:\Robot\ManualGripper
@@ -153,20 +269,35 @@ cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build --config Release
 ```
 
-如果提示缺 DLL，运行：
+编译成功后，会生成：
+
+```text
+build/ManualGripper.exe
+```
+
+如果启动时报缺 DLL，在项目根目录执行：
 
 ```powershell
 .\collect_dlls.ps1
 ```
 
-### 5. 启动
+## 8. 启动项目
+
+PowerShell：
 
 ```powershell
 cd C:\Robot\ManualGripper\build
 .\ManualGripper.exe
 ```
 
-浏览器打开：
+MSYS2 MINGW64：
+
+```bash
+cd /c/Robot/ManualGripper/build
+./ManualGripper.exe
+```
+
+终端看到服务启动后，打开浏览器：
 
 ```text
 http://localhost:8080
@@ -174,26 +305,38 @@ http://localhost:8080
 
 常用页面：
 
-- 数据看板：`http://localhost:8080/index.html`
-- 采集控制台：`http://localhost:8080/index_old.html`
-- 项目说明：`http://localhost:8080/info.html`
+```text
+http://localhost:8080/index.html      数据看板
+http://localhost:8080/index_old.html  采集控制台
+http://localhost:8080/info.html       项目说明页面
+```
 
-## 首次运行检查
+## 9. 第一次运行怎么检查
+
+建议按这个顺序检查：
 
 1. 启动 `ManualGripper.exe`。
 2. 打开 `http://localhost:8080/index_old.html`。
 3. 点击“重新扫描设备”。
-4. 右上角设备信息中确认相机和夹爪数量。
-5. 左侧打开需要的相机流或夹爪流。
-6. 海康只应显示彩色流；Orbbec 应显示彩色、深度、红外、点云。
-7. 在数据采集页录制 5 秒测试数据。
-8. 停止录制后确认 `data_capture/` 下生成新会话。
-9. 进入数据转换页，把测试会话转换为 LeRobot 或 HDF5。
-10. 回到数据看板确认历史记录可查看。
+4. 右上角设备信息中确认摄像头数量和夹爪数量。
+5. 左侧打开需要的相机流。
+6. 海康相机一般只有彩色流。
+7. Orbbec 相机会有彩色、深度、红外、点云。
+8. 打开夹爪监控，确认手动夹爪位置和按钮状态正常。
+9. 如果使用电动夹爪，先确认 CAN 连接，再小范围测试位置控制。
+10. 进入数据采集页，录制 5 秒测试数据。
+11. 停止录制后，确认 `data_capture/` 下生成新会话。
+12. 进入数据转换页，尝试转换成 LeRobot 或 HDF5。
 
-## 数据格式
+## 10. 采集数据保存在哪里
 
-原始数据目录：
+默认原始数据目录：
+
+```text
+data_capture/
+```
+
+一次典型采集会生成：
 
 ```text
 data_capture/20260602_103000/
@@ -212,97 +355,69 @@ data_capture/20260602_103000/
 └─ metadata.json
 ```
 
-视频目录包含：
+视频目录中通常包含：
 
-- `*.mp4`：视频文件。
-- `timestamps.csv`：每帧时间戳。
+```text
+color.mp4
+timestamps.csv
+```
 
-夹爪目录包含：
+夹爪目录中通常包含：
 
-- `gripper.csv`：位置、按钮、电动夹爪状态或 CAN 数据。
+```text
+gripper.csv
+```
 
-转换输出目录：
+转换后的数据默认保存到：
 
 ```text
 data_converted/
-├─ 20260602_103000_lerobot/
-├─ 20260602_103000_hdf5/
-└─ 20260602_103000_rlds/
 ```
 
-## Git 提交和仓库维护
+## 11. 常用配置
 
-### 第一次创建仓库
+配置文件：
 
-在项目根目录，也就是包含 `CMakeLists.txt` 的目录执行：
-
-```bash
-git init
-git status
-git add .gitattributes .gitignore README.md requirements.txt CMakeLists.txt config.json collect_dlls.ps1 setup_orbbec_sdk.ps1 docs frontend include src tools lib
-git commit -m "Initial data capture platform"
+```text
+config.json
 ```
 
-连接远程仓库：
+常用项：
 
-```bash
-git remote add origin <你的仓库地址>
-git branch -M main
-git push -u origin main
+```json
+{
+  "server": {
+    "port": 8080
+  },
+  "paths": {
+    "frontendDir": "frontend",
+    "dataDir": "data_capture",
+    "convertOutputDir": "data_converted",
+    "convertScript": "tools/convert_to_lerobot.py"
+  },
+  "camera": {
+    "maxWidth": 1280,
+    "maxHeight": 720,
+    "fps": 30
+  },
+  "stream": {
+    "jpegQuality": 95,
+    "streamMaxWidth": 640,
+    "frameSkipMs": 33
+  }
+}
 ```
 
-### 后续提交代码
+说明：
 
-```bash
-git status
-git add README.md docs frontend include src tools config.json requirements.txt .gitignore .gitattributes
-git commit -m "Update device hotplug and deployment docs"
-git push
-```
+- `server.port`：网页访问端口。
+- `paths.dataDir`：原始数据保存目录。
+- `paths.convertOutputDir`：转换数据保存目录。
+- `camera.maxWidth/maxHeight/fps`：海康采集分辨率和帧率。
+- `stream.streamMaxWidth`：网页预览最大宽度。
+- `stream.jpegQuality`：网页预览 JPEG 质量。
 
-### 别人下载或拉取
-
-第一次：
-
-```bash
-git clone <你的仓库地址> ManualGripper
-cd ManualGripper
-python -m pip install -r requirements.txt
-```
-
-后续更新：
-
-```bash
-cd ManualGripper
-git pull
-cmake --build build --config Release
-```
-
-### 提交前检查
-
-每次提交前建议执行：
-
-```bash
-git status
-git diff --stat
-cmake --build build --config Release
-```
-
-如果看到 `build/`、`data_capture/`、`data_converted/` 准备被提交，说明 `.gitignore` 或 `git add` 范围有问题，不要提交这些目录。
-
-## 常见问题
-
-### 页面打不开
-
-确认服务是否启动，默认端口是 `8080`。端口被占用时修改 `config.json` 的 `server.port`。
-
-### 相机能在右上角设备信息中看到，但左侧没有开关
-
-右上角显示的是检测列表，左侧显示的是已挂载到采集槽位的设备。点击“重新扫描设备”，让后端释放旧槽位并重新挂载设备。
-
-### 海康三路画面卡顿
-
-检查 `config.json` 中的：
+如果三路海康画面卡顿，可以降低：
 
 ```json
 "camera": {
@@ -312,25 +427,151 @@ cmake --build build --config Release
 }
 ```
 
-三路 USB 相机不建议满分辨率满帧率长期预览。
+## 12. 常见问题
 
-### 海康颜色异常
+### 页面打不开
 
-优先用 MVS 客户端确认相机输出正常。项目里默认使用海康 SDK 转换为 BGR 图像。
+确认 `ManualGripper.exe` 是否正在运行。
+
+默认地址：
+
+```text
+http://localhost:8080
+```
+
+如果端口被占用，修改 `config.json` 中的 `server.port`。
+
+### 右上角能看到设备，左侧没有开关
+
+右上角显示的是“检测到的设备列表”。  
+左侧显示的是“已经挂载到采集槽位的设备”。
+
+处理方法：
+
+1. 先关闭相关预览流。
+2. 点击“重新扫描设备”。
+3. 等待左侧开关重新生成。
+
+### 海康相机颜色不对
+
+先用海康 MVS 客户端确认画面颜色正常。  
+项目中默认使用海康 SDK 转换为 BGR 图像。
+
+### 三路海康卡顿
+
+三路 USB 相机不要满分辨率满帧率长时间预览。  
+建议使用：
+
+```json
+"maxWidth": 1280,
+"maxHeight": 720,
+"fps": 30
+```
 
 ### Orbbec 黑屏
 
-先用 Orbbec Viewer 验证设备，再回到网页点击“重新扫描设备”。如果刚切换过海康和 Orbbec，建议关闭旧预览流后再扫描。
+先用 Orbbec Viewer 确认设备正常。  
+如果刚切换过海康和 Orbbec，建议关闭旧预览流后点击“重新扫描设备”。
 
-### 夹爪无反应
+### 夹爪不动
 
-检查设备管理器 COM 口、电源、线缆、CAN 适配器、使能状态、急停状态和错误码。电动夹爪首次测试不要直接发送大行程。
+按顺序检查：
 
-## 版本整理建议
+1. 电源。
+2. 线缆。
+3. 串口或 CAN 适配器。
+4. 驱动。
+5. 使能状态。
+6. 急停状态。
+7. 错误码。
 
-为了便于迁移，建议把项目分成两类：
+首次测试电动夹爪时，不要直接发送大行程。
 
-- 仓库源码版：提交源码、前端、文档、配置、工具脚本和必要 SDK 目录，不提交数据和 build。
-- 现场运行版：在源码版基础上保留 `build/`、`data_capture/`、`data_converted/`，用于当前电脑直接运行和保留历史数据。
+### 数据转换失败
 
-如果要给别人使用，优先发仓库源码版；如果对方不会编译，再额外发一个压缩包运行版。
+确认安装了 Python 依赖：
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+确认原始会话里有：
+
+```text
+metadata.json
+视频文件
+timestamps.csv
+```
+
+## 13. Git 使用说明
+
+这个项目已经配置了 `.gitignore`，默认不会提交：
+
+```text
+build/
+data_capture/
+data_converted/
+```
+
+第一次提交：
+
+```bash
+git init
+git add .gitattributes .gitignore README.md requirements.txt CMakeLists.txt config.json collect_dlls.ps1 setup_orbbec_sdk.ps1 docs frontend include src tools lib
+git commit -m "Initial data capture platform"
+git remote add origin <仓库地址>
+git branch -M main
+git push -u origin main
+```
+
+后续更新：
+
+```bash
+git status
+git add README.md docs frontend include src tools config.json requirements.txt .gitignore .gitattributes
+git commit -m "Update project"
+git push
+```
+
+别人拉取：
+
+```bash
+git clone <仓库地址> ManualGripper
+cd ManualGripper
+python -m pip install -r requirements.txt
+```
+
+## 14. 给别人使用时怎么打包
+
+推荐两种方式。
+
+### 源码仓库方式
+
+适合会编译的人：
+
+```text
+提交源码、前端、文档、配置、tools、lib
+不提交 build、data_capture、data_converted
+```
+
+对方拉取后按本 README 编译运行。
+
+### 运行版压缩包方式
+
+适合不会编译的人：
+
+```text
+build/
+frontend/
+config.json
+tools/
+requirements.txt
+README.md
+```
+
+运行版仍然要求对方安装相机、串口、CAN 等硬件驱动。
+
+## 15. 重要提醒
+
+如果仓库是公开仓库，请确认海康、Orbbec、GCAN 等 SDK 是否允许公开分发。  
+如果不确定，建议使用私有仓库，或者只提交 `lib/` 目录结构和放置说明，让使用者自己从厂商官网下载 SDK。
