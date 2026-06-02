@@ -1,0 +1,840 @@
+﻿<!-- index_old.html - 采集控制台主页面 -->
+<!-- 功能：夹爪监控、数据采集、数据转换、夹爪控制 -->
+<!-- 依赖：style.css、script.js -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卓誉科技机器人</title>
+    <link rel="icon" type="image/png" href="favicon.png" sizes="96x96">
+    <link rel="stylesheet" href="/style.css?v=20260602infoscroll">
+</head>
+<body>
+    <!-- 顶部导航栏：Logo、设备信息按钮、状态指示、时钟 -->
+    <header class="topbar">
+        <div class="topbar-left">
+            <img class="topbar-logo" src="favicon.png" alt="logo">
+            <div class="logo">卓誉科技机器人</div>
+            <span class="topbar-title">数据采集平台</span>
+        </div>
+        <div class="topbar-right">
+            <button class="info-btn" id="infoBtn" title="设备信息" style="margin-right:4px">&#9432;</button>
+            <div class="gear-dropdown" id="gearDropdown">
+                <button class="info-btn" id="gearBtn" title="更多" style="margin-right:4px">&#9881;</button>
+                <div class="gear-menu" id="gearMenu">
+                    <a class="gear-menu-item" href="/info.html">&#128218; 项目说明</a>
+                    <a class="gear-menu-item" href="/index.html">&#128202; 数据看板</a>
+                </div>
+            </div>
+            <span class="status-dot" id="statusDot"></span>
+            <span class="status-text" id="statusText">未连接</span>
+            <span class="clock" id="clock"></span>
+        </div>
+    </header>
+
+    <!-- 导航标签栏：夹爪监控 / 数据采集 / 数据转换 / 夹爪控制 -->
+    <nav class="navbar">
+        <div class="navbar-inner">
+            <button class="nav-tab active" data-page="monitor">夹爪监控</button>
+            <button class="nav-tab" data-page="collect">数据采集</button>
+            <button class="nav-tab" data-page="convert">数据转换</button>
+            <button class="nav-tab" data-page="control">夹爪控制</button>
+            <button class="nav-tab" data-page="electric">电动夹爪控制</button>
+            <button class="nav-tab" data-page="rps">剪刀石头布</button>
+        </div>
+    </nav>
+
+    <button class="sidebar-toggle-btn" id="sidebarToggleBtn">&#8249;</button>
+
+    <!-- 设备信息弹窗：多摄像头和夹爪设备详情 -->
+    <div class="info-popup" id="infoPopup" style="display:none">
+        <div class="info-popup-header">
+            <span>设备信息</span>
+            <button class="info-popup-close" id="infoPopupClose">&times;</button>
+        </div>
+        <div class="info-popup-body" id="infoPopupBody">
+            <div id="infoDeviceSummary">
+                <div class="info-empty">正在读取设备信息...</div>
+            </div>
+            <button class="info-rescan-btn" id="rescanDevicesBtn" type="button">重新扫描设备</button>
+        </div>
+    </div>
+
+    <!-- Page: 夹爪监控 -->
+    <div class="page active" id="page-monitor">
+        <div class="main-layout">
+            <aside class="sidebar" id="sidebar-monitor">
+                <div id="cameraToggles">
+                    <!-- 动态生成的摄像头开关，由 script.js 根据 /api/devices 生成 -->
+                </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-title">摄像头分配</div>
+                    <div id="cameraAssignPanel" style="font-size:11px;color:var(--text-dim)">检测中...</div>
+                </div>
+                <div class="sidebar-section">
+                    <button class="record-btn" id="swapCamerasBtn" style="width:100%;font-size:12px;padding:6px 0;">交换左右手摄像头</button>
+                    <button class="record-btn" id="toggleAllBtn" style="width:100%;font-size:12px;padding:6px 0;">一键全开</button>
+                </div>
+                <div class="sidebar-section sidebar-stats">
+                    <div class="stat-row"><span>活跃</span><span id="statActive">0</span></div>
+                </div>
+            </aside>
+
+            <main class="content">
+                <div id="videoGrid" class="video-grid" style="display:grid;gap:8px;">
+                    <!-- 动态生成的视频卡片，由 script.js 根据开关状态生成 -->
+                </div>
+
+                <div id="gripperSection" class="gripper-section" style="display:none">
+                    <div style="display:flex;gap:12px;width:100%">
+                        <!-- 左夹爪 -->
+                        <div id="gripperLeftPanel" class="panel-card" style="flex:1;min-width:0;display:none">
+                            <div class="panel-card-header">
+                                <span style="font-size:13px;font-weight:600">左夹爪</span>
+                                <span class="panel-card-sub" id="gripperLeftValues" style="color:#888"></span>
+                            </div>
+                            <!-- 手动夹爪内容 -->
+                            <div id="gripperLeftManual" class="gripper-display" style="flex-direction:column;gap:8px;padding:8px 0">
+                                <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 24px;margin-bottom:2px">
+                                    <span style="font-size:16px;font-weight:700;color:#1e293b">闭合度</span>
+                                    <span class="gripper-bar-label" id="gripperLeftPosition">--</span>
+                                </div>
+                                <div class="gripper-bar-wrap"><div class="gripper-bar" id="gripperLeftBar"></div></div>
+                                <div style="display:flex;justify-content:space-between;padding:4px 24px">
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <span style="font-size:11px;color:#888">上按键</span>
+                                        <div id="gripperLeftBtn1" style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid #e0e0e0"></div>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <span style="font-size:11px;color:#888">下按键</span>
+                                        <div id="gripperLeftBtn2" style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid #e0e0e0"></div>
+                                    </div>
+                                </div>
+                                <div class="gripper-action-row">
+                                    <div class="gripper-action-item">
+                                        <span class="gripper-action-label">上键</span>
+                                        <span class="gripper-action-select gripper-action-fixed">开始录制</span>
+                                    </div>
+                                    <div class="gripper-action-item">
+                                        <span class="gripper-action-label">下键</span>
+                                        <span class="gripper-action-select gripper-action-fixed">停止录制</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 电动夹爪内容 -->
+                            <div id="gripperLeftElectric" style="display:none;flex-direction:column;gap:6px;padding:10px 16px">
+                                <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11px;color:var(--text-sub);font-variant-numeric:tabular-nums">
+                                    <span>位置 <b id="egLeftPos" style="color:var(--primary)">--</b></span>
+                                    <span>速度 <b id="egLeftVel" style="color:var(--text)">--</b></span>
+                                    <span>电流 <b id="egLeftCur" style="color:var(--text)">--</b></span>
+                                    <span>电机温度 <b id="egLeftMt" style="color:var(--text)">--</b></span>
+                                    <span>MOS温度 <b id="egLeftMos" style="color:var(--text)">--</b></span>
+                                    <span>错误码 <b id="egLeftErr" style="color:var(--success)">正常</b></span>
+                                    <span>采集速率 <b id="egLeftRate" style="color:var(--primary)">--</b>/s</span>
+                                </div>
+                                <div style="display:flex;gap:6px;margin-top:2px">
+                                    <button class="eg-inline-btn eg-inline-btn-primary" id="egLeftEnableBtn">使能</button>
+                                    <button class="eg-inline-btn eg-inline-btn-outline" id="egLeftDisableBtn">失能</button>
+                                    <button class="eg-inline-btn eg-inline-btn-warn" id="egLeftClearErrBtn">清除错误</button>
+                                    <button class="eg-inline-btn eg-inline-btn-danger" id="egLeftHaltBtn">急停</button>
+                                </div>
+                                <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:2px">
+                                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                                        <span style="font-size:12px;font-weight:600;color:var(--text)">位置控制</span>
+                                        <span style="font-size:11px;color:var(--text-sub);font-variant-numeric:tabular-nums"><span id="egLeftTargetPos">0</span>°</span>
+                                    </div>
+                                    <input type="range" id="egLeftSlider" min="0" max="4500" value="0" step="1" style="width:100%;accent-color:var(--primary)">
+                                    <div style="display:flex;gap:8px;margin-top:6px">
+                                        <div style="flex:1">
+                                            <label style="font-size:10px;color:var(--text-dim)">速度</label>
+                                            <input type="number" id="egLeftSpeed" value="3000" min="1" max="3276" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                                        </div>
+                                        <div style="flex:1">
+                                            <label style="font-size:10px;color:var(--text-dim)">电流(A)</label>
+                                            <input type="number" id="egLeftCurrent" value="4.0" min="0.1" max="10" step="0.1" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- 右夹爪 -->
+                        <div id="gripperRightPanel" class="panel-card" style="flex:1;min-width:0;display:none">
+                            <div class="panel-card-header">
+                                <span style="font-size:13px;font-weight:600">右夹爪</span>
+                                <span class="panel-card-sub" id="gripperRightValues" style="color:#888"></span>
+                            </div>
+                            <!-- 手动夹爪内容 -->
+                            <div id="gripperRightManual" class="gripper-display" style="flex-direction:column;gap:8px;padding:8px 0">
+                                <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 24px;margin-bottom:2px">
+                                    <span style="font-size:16px;font-weight:700;color:#1e293b">闭合度</span>
+                                    <span class="gripper-bar-label" id="gripperRightPosition">--</span>
+                                </div>
+                                <div class="gripper-bar-wrap"><div class="gripper-bar" id="gripperRightBar"></div></div>
+                                <div style="display:flex;justify-content:space-between;padding:4px 24px">
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <span style="font-size:11px;color:#888">上按键</span>
+                                        <div id="gripperRightBtn1" style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid #e0e0e0"></div>
+                                    </div>
+                                    <div style="display:flex;align-items:center;gap:6px">
+                                        <span style="font-size:11px;color:#888">下按键</span>
+                                        <div id="gripperRightBtn2" style="width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid #e0e0e0"></div>
+                                    </div>
+                                </div>
+                                <div class="gripper-action-row">
+                                    <div class="gripper-action-item">
+                                        <span class="gripper-action-label">上键</span>
+                                        <span class="gripper-action-select gripper-action-fixed">开始录制</span>
+                                    </div>
+                                    <div class="gripper-action-item">
+                                        <span class="gripper-action-label">下键</span>
+                                        <span class="gripper-action-select gripper-action-fixed">停止录制</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <!-- 电动夹爪内容 -->
+                            <div id="gripperRightElectric" style="display:none;flex-direction:column;gap:6px;padding:10px 16px">
+                                <div style="display:flex;flex-wrap:wrap;gap:6px 18px;font-size:11px;color:var(--text-sub);font-variant-numeric:tabular-nums">
+                                    <span>位置 <b id="egRightPos" style="color:var(--primary)">--</b></span>
+                                    <span>速度 <b id="egRightVel" style="color:var(--text)">--</b></span>
+                                    <span>电流 <b id="egRightCur" style="color:var(--text)">--</b></span>
+                                    <span>电机温度 <b id="egRightMt" style="color:var(--text)">--</b></span>
+                                    <span>MOS温度 <b id="egRightMos" style="color:var(--text)">--</b></span>
+                                    <span>错误码 <b id="egRightErr" style="color:var(--success)">正常</b></span>
+                                    <span>采集速率 <b id="egRightRate" style="color:var(--primary)">--</b>/s</span>
+                                </div>
+                                <div style="display:flex;gap:6px;margin-top:2px">
+                                    <button class="eg-inline-btn eg-inline-btn-primary" id="egRightEnableBtn">使能</button>
+                                    <button class="eg-inline-btn eg-inline-btn-outline" id="egRightDisableBtn">失能</button>
+                                    <button class="eg-inline-btn eg-inline-btn-warn" id="egRightClearErrBtn">清除错误</button>
+                                    <button class="eg-inline-btn eg-inline-btn-danger" id="egRightHaltBtn">急停</button>
+                                </div>
+                                <div style="border-top:1px solid var(--border);padding-top:8px;margin-top:2px">
+                                    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+                                        <span style="font-size:12px;font-weight:600;color:var(--text)">位置控制</span>
+                                        <span style="font-size:11px;color:var(--text-sub);font-variant-numeric:tabular-nums"><span id="egRightTargetPos">0</span>°</span>
+                                    </div>
+                                    <input type="range" id="egRightSlider" min="0" max="4500" value="0" step="1" style="width:100%;accent-color:var(--primary)">
+                                    <div style="display:flex;gap:8px;margin-top:6px">
+                                        <div style="flex:1">
+                                            <label style="font-size:10px;color:var(--text-dim)">速度</label>
+                                            <input type="number" id="egRightSpeed" value="3000" min="1" max="3276" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                                        </div>
+                                        <div style="flex:1">
+                                            <label style="font-size:10px;color:var(--text-dim)">电流(A)</label>
+                                            <input type="number" id="egRightCurrent" value="4.0" min="0.1" max="10" step="0.1" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Page: 数据采集 -->
+    <div class="page" id="page-collect" style="display:none">
+        <div class="collect-layout">
+            <aside class="collect-sidebar" id="sidebar-collect">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">录制设置</div>
+                    <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+                        <span class="hint-type" style="white-space:nowrap;font-size:10px;">保存到</span>
+                        <span class="hint-desc" id="collectPathDisplay" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10px;color:var(--text)">加载中...</span>
+                        <button class="info-btn" id="collectPathBtn" title="选择目录" style="font-size:12px;padding:2px 6px;flex-shrink:0">&#128193;</button>
+                    </div>
+                    <button class="record-mini-action" id="recordSelectAllBtn" type="button">一键全开</button>
+                    <div id="recordTogglesContainer">
+                        <!-- 动态生成：按位置（左/右/头）显示录制开关 -->
+                    </div>
+                    <div class="record-mode-box">
+                        <div class="record-mode-title">保存模式</div>
+                        <div class="record-mode-toggle" id="recordSaveModeToggle">
+                            <button class="record-mode-btn active" type="button" data-save-mode="strict">严格同步</button>
+                            <button class="record-mode-btn" type="button" data-save-mode="fast">快速保存</button>
+                        </div>
+                        <div class="record-mode-desc" id="recordSaveModeDesc">视频时长与页面录制时长优先对齐，停止后后台统一保存。</div>
+                    </div>
+                </div>
+                <div class="sidebar-section">
+                    <button class="record-btn" id="recordStartBtn">开始录制</button>
+                    <button class="record-btn record-btn-stop" id="recordStopBtn" disabled>停止录制</button>
+                </div>
+                <div class="sidebar-section record-format-hint">
+                    <div class="hint-title">保存格式说明</div>
+                    <div class="hint-row"><span class="hint-type">严格同步</span><span class="hint-desc">停止后统一编码 · 视频时长对齐</span></div>
+                    <div class="hint-row"><span class="hint-type">快速保存</span><span class="hint-desc">边录边写 MP4 · 约30/60fps</span></div>
+                    <div class="hint-row"><span class="hint-type">彩色/深度</span><span class="hint-desc">MP4 · 实测fps写入metadata</span></div>
+                    <div class="hint-row"><span class="hint-type">红外视频</span><span class="hint-desc">MP4 · 逐帧timestamps.csv</span></div>
+                    <div class="hint-row"><span class="hint-type">点云数据</span><span class="hint-desc">PLY · 约12fps(60fps每5帧)</span></div>
+                    <div class="hint-row"><span class="hint-type">夹爪数据</span><span class="hint-desc">CSV · 约30Hz</span></div>
+                </div>
+            </aside>
+            <main class="collect-content">
+                <div class="collect-status-panel" id="collectStatus">
+                    <div class="status-header">录制状态</div>
+                    <div class="status-grid">
+                        <div class="status-item">
+                            <span class="status-label">状态</span>
+                            <span class="status-value" id="recStatus">空闲</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">会话 ID</span>
+                            <span class="status-value" id="recSessionId">--</span>
+                        </div>
+                        <div class="status-item">
+                            <span class="status-label">录制时长</span>
+                            <span class="status-value" id="recDuration">00:00:00</span>
+                        </div>
+                    </div>
+                    
+                </div>
+                <div class="collect-status-panel live-rates-panel" id="recLiveRates">
+                    <div class="status-header" style="margin-bottom:8px;">实时采集频率</div>
+                    <div id="recLiveRatesGrid" class="status-grid live-rates-grid">
+                        <!-- 动态生成：每个模块的真实采集频率 -->
+                    </div>
+                </div>
+                <div class="collect-history-panel">
+                    <div class="status-header">历史会话</div>
+                    <div class="history-list" id="historyList">
+                        <div class="empty-state">暂无录制记录</div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Page: 数据转换 -->
+    <div class="page" id="page-convert" style="display:none">
+        <div class="collect-layout">
+            <aside class="collect-sidebar" id="sidebar-convert">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">转换设置</div>
+                    <label class="toggle-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+                        <span class="toggle-label">数据源目录</span>
+                        <div style="display:flex;gap:4px;">
+                            <input type="text" id="convertSourceDir" class="convert-input" value="data_capture" placeholder="输入数据源目录路径" style="flex:1">
+                            <button class="info-btn convert-dir-btn" data-target="convertSourceDir" title="选择目录" style="font-size:12px;padding:2px 6px;flex-shrink:0">&#128193;</button>
+                        </div>
+                    </label>
+                    <label class="toggle-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+                        <span class="toggle-label">输出目录</span>
+                        <div style="display:flex;gap:4px;">
+                            <input type="text" id="convertOutputDir" class="convert-input" value="data_converted" placeholder="输入输出目录路径" style="flex:1">
+                            <button class="info-btn convert-dir-btn" data-target="convertOutputDir" title="选择目录" style="font-size:12px;padding:2px 6px;flex-shrink:0">&#128193;</button>
+                        </div>
+                    </label>
+                    <div id="convertPathStatus" style="font-size:10px;color:var(--text-dim);padding:0 4px;min-height:14px;"></div>
+                    <label class="toggle-row" style="flex-direction:column;align-items:stretch;gap:6px;">
+                        <span class="toggle-label">目标格式</span>
+                        <select id="convertFormat" class="convert-input" style="padding:6px 8px;">
+                            <option value="lerobot">LeRobot v3.0</option>
+                            <option value="hdf5">HDF5 v1.0</option>
+                            <option value="rlds">RLDS v0.1</option>
+                        </select>
+                    </label>
+                </div>
+                <div class="sidebar-section">
+                    <button class="record-btn" id="convertBrowseBtn">浏览会话</button>
+                    <button class="record-btn" id="convertStartBtn" disabled>开始转换</button>
+                    <button class="record-btn record-btn-stop" id="convertSelectAllBtn" disabled>全选</button>
+                    <button class="record-btn record-btn-stop" id="convertDeselectBtn" disabled>取消全选</button>
+                </div>
+            </aside>
+            <main class="collect-content">
+                <div class="collect-status-panel">
+                    <div class="status-header" style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+                        <span>会话列表 <span id="convertSessionCount" style="font-size:11px;color:var(--text-dim);font-weight:400;"></span></span>
+                        <div id="convertFilterBar" style="display:none;align-items:center;gap:6px;">
+                            <select class="convert-input" id="cvFilterYear" style="width:auto;padding:3px 8px;font-size:11px;"></select>
+                            <select class="convert-input" id="cvFilterMonth" style="width:auto;padding:3px 8px;font-size:11px;"></select>
+                            <select class="convert-input" id="cvFilterDay" style="width:auto;padding:3px 8px;font-size:11px;"></select>
+                        </div>
+                    </div>
+                    <div id="convertSessionList" class="convert-session-list">
+                        <div class="empty-state">点击「浏览会话」加载可用会话</div>
+                    </div>
+                </div>
+                <div class="collect-status-panel" id="convertProgressPanel" style="display:none">
+                    <div class="status-header">转换进度</div>
+                    <div class="convert-progress-info">
+                        <span id="convertProgressText">0 / 0</span>
+                        <span id="convertProgressStep" style="font-size:11px;color:var(--text-dim);">等待中...</span>
+                    </div>
+                    <div class="convert-progress-bar">
+                        <div class="convert-progress-fill" id="convertProgressFill"></div>
+                    </div>
+                    <div id="convertError" class="convert-error" style="display:none"></div>
+                </div>
+                <div class="collect-history-panel">
+                    <div class="status-header">转换结果</div>
+                    <div id="convertResultList" class="convert-session-list">
+                        <div class="empty-state">暂无转换记录</div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Page: 夹爪控制 -->
+    <div class="page" id="page-control" style="display:none">
+        <div class="collect-layout">
+            <aside class="collect-sidebar" id="sidebar-control">
+                <div class="sidebar-section">
+                    <div class="sidebar-title">连接状态</div>
+                    <div class="status-item">
+                        <span class="status-label">夹爪1 (左)</span>
+                        <span class="status-value" id="gripConn1">未连接</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-label">夹爪2 (右)</span>
+                        <span class="status-value" id="gripConn2">未连接</span>
+                    </div>
+                </div>
+                <div class="sidebar-section">
+                    <div class="sidebar-title">LED 控制</div>
+                    <div style="margin-bottom:8px;">
+                        <canvas id="ledColorStrip" width="382" height="20" style="width:100%;height:10px;border-radius:5px;cursor:pointer;border:1px solid var(--border);"></canvas>
+                        <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                            <div id="ledColorPreview" style="width:24px;height:24px;border-radius:4px;border:1px solid var(--border);background:#ff0000;"></div>
+                            <span id="ledColorHex" style="font-size:11px;color:var(--text-dim);font-family:monospace;">#FF0000</span>
+                            <input type="hidden" id="ledR" value="255">
+                            <input type="hidden" id="ledG" value="0">
+                            <input type="hidden" id="ledB" value="0">
+                        </div>
+                        <div class="led-preset-colors">
+                            <div class="led-preset" data-r="255" data-g="255" data-b="255" style="background:#ffffff" title="白色"></div>
+                            <div class="led-preset" data-r="200" data-g="200" data-b="200" style="background:#c8c8c8" title="浅灰"></div>
+                            <div class="led-preset" data-r="100" data-g="100" data-b="100" style="background:#646464" title="深灰"></div>
+                            <div class="led-preset" data-r="0" data-g="0" data-b="0" style="background:#000000;border:1px solid #999" title="黑色"></div>
+                            <div class="led-preset" data-r="255" data-g="0" data-b="0" style="background:#ff0000" title="红色"></div>
+                            <div class="led-preset" data-r="200" data-g="0" data-b="0" style="background:#c80000" title="深红"></div>
+                            <div class="led-preset" data-r="0" data-g="128" data-b="0" style="background:#008000" title="绿色"></div>
+                            <div class="led-preset" data-r="0" data-g="100" data-b="255" style="background:#0064ff" title="蓝色"></div>
+                            <div class="led-preset" data-r="0" data-g="0" data-b="180" style="background:#0000b4" title="深蓝"></div>
+                            <div class="led-preset" data-r="255" data-g="165" data-b="0" style="background:#ffa500" title="橙色"></div>
+                            <div class="led-preset" data-r="255" data-g="255" data-b="0" style="background:#ffff00" title="黄色"></div>
+                            <div class="led-preset" data-r="128" data-g="0" data-b="255" style="background:#8000ff" title="紫色"></div>
+                            <div class="led-preset" data-r="0" data-g="255" data-b="255" style="background:#00ffff" title="青色"></div>
+                            <div class="led-preset" data-r="255" data-g="105" data-b="180" style="background:#ff69b4" title="粉色"></div>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;">
+                        <label style="font-size:11px;white-space:nowrap;">亮度</label>
+                        <input type="range" id="ledBrightness" min="0" max="100" value="50" style="flex:1;">
+                        <span id="ledBrightnessVal" style="font-size:11px;width:30px;">50%</span>
+                    </div>
+                    <div style="display:flex;gap:6px;">
+                        <button class="record-btn" id="gripLedLeftBtn" style="flex:1;font-size:11px;padding:5px 0">左夹爪LED</button>
+                        <button class="record-btn" id="gripLedRightBtn" style="flex:1;font-size:11px;padding:5px 0">右夹爪LED</button>
+                    </div>
+                </div>
+            </aside>
+            <main class="collect-content">
+                <!-- 左右夹爪并排实时数据 -->
+                <div style="display:flex;gap:12px;width:100%">
+                    <div class="collect-status-panel" style="flex:1;min-width:0">
+                        <div class="status-header" style="display:flex;justify-content:space-between;align-items:center">
+                            <span>左夹爪 实时数据</span>
+                            <span id="gripLeftCtrlConn" style="font-size:11px;color:var(--text-dim)">--</span>
+                        </div>
+                        <div class="gripper-realtime" style="flex-direction:column;gap:10px">
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 12px">
+                                <span style="font-size:15px;font-weight:700;color:#1e293b">闭合度</span>
+                                <span class="gripper-big-value" id="gripLeftPosBig" style="font-size:28px">--</span>
+                            </div>
+                            <div class="gripper-bar-wrap" style="height:10px;border-radius:5px"><div class="gripper-bar" id="gripLeftBarBig" style="border-radius:5px"></div></div>
+                            <div style="display:flex;justify-content:space-between;margin-top:4px;padding:0 24px">
+                                <div style="text-align:center">
+                                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">原始值</div>
+                                    <div style="font-size:16px;font-weight:600" id="gripLeftRawBig">--</div>
+                                </div>
+                                <div style="text-align:center">
+                                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">按键1</div>
+                                    <div id="gripLeftBtn1Big" style="display:inline-block;width:16px;height:16px;border-radius:50%;background:var(--bg-secondary)"></div>
+                                </div>
+                                <div style="text-align:center">
+                                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">按键2</div>
+                                    <div id="gripLeftBtn2Big" style="display:inline-block;width:16px;height:16px;border-radius:50%;background:var(--bg-secondary)"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="collect-status-panel" style="flex:1;min-width:0">
+                        <div class="status-header" style="display:flex;justify-content:space-between;align-items:center">
+                            <span>右夹爪 实时数据</span>
+                            <span id="gripRightCtrlConn" style="font-size:11px;color:var(--text-dim)">--</span>
+                        </div>
+                        <div class="gripper-realtime" style="flex-direction:column;gap:10px">
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 12px">
+                                <span style="font-size:15px;font-weight:700;color:#1e293b">闭合度</span>
+                                <span class="gripper-big-value" id="gripRightPosBig" style="font-size:28px">--</span>
+                            </div>
+                            <div class="gripper-bar-wrap" style="height:10px;border-radius:5px"><div class="gripper-bar" id="gripRightBarBig" style="border-radius:5px"></div></div>
+                            <div style="display:flex;justify-content:space-between;margin-top:4px;padding:0 24px">
+                                <div style="text-align:center">
+                                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">原始值</div>
+                                    <div style="font-size:16px;font-weight:600" id="gripRightRawBig">--</div>
+                                </div>
+                                <div style="text-align:center">
+                                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">按键1</div>
+                                    <div id="gripRightBtn1Big" style="display:inline-block;width:16px;height:16px;border-radius:50%;background:var(--bg-secondary)"></div>
+                                </div>
+                                <div style="text-align:center">
+                                    <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">按键2</div>
+                                    <div id="gripRightBtn2Big" style="display:inline-block;width:16px;height:16px;border-radius:50%;background:var(--bg-secondary)"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Page: 电动夹爪控制 (Redesigned) -->
+    <div class="page" id="page-electric" style="display:none">
+        <div class="eg-layout">
+            <!-- 左侧控制面板 -->
+            <aside class="eg-sidebar">
+                <!-- 连接状态 -->
+                <div class="eg-card eg-card-conn">
+                    <div class="eg-card-title">
+                        <span class="eg-icon eg-icon-link"></span> 连接状态
+                    </div>
+                    <div class="eg-conn-row">
+                        <span class="eg-conn-dot" id="egConnDot"></span>
+                        <div class="eg-conn-info">
+                            <span class="eg-conn-label">CAN 适配器</span>
+                            <span class="eg-conn-val" id="egCanStatus">未连接</span>
+                        </div>
+                    </div>
+                    <div class="eg-conn-row">
+                        <span class="eg-conn-dot eg-conn-dot-id" id="egIdDot"></span>
+                        <div class="eg-conn-info">
+                            <span class="eg-conn-label">电机 ID</span>
+                            <span class="eg-conn-val" id="egMotorIdVal">检测中...</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 电机控制 -->
+                <div class="eg-card">
+                    <div class="eg-card-title"><span class="eg-icon eg-icon-motor"></span> 电机控制</div>
+                    <div class="eg-btn-grid eg-btn-grid-2">
+                        <button class="eg-btn eg-btn-primary" id="egEnableBtn">使能</button>
+                        <button class="eg-btn eg-btn-outline" id="egDisableBtn">失能</button>
+                        <button class="eg-btn eg-btn-warn" id="egClearErrBtn">清除错误</button>
+                        <button class="eg-btn eg-btn-danger" id="egHaltBtn">急停</button>
+                    </div>
+                </div>
+
+                <!-- 配置命令 -->
+                <div class="eg-card">
+                    <div class="eg-card-title"><span class="eg-icon eg-icon-config"></span> 配置命令</div>
+                    <div class="eg-btn-stack">
+                        <button class="eg-btn eg-btn-outline eg-btn-full" id="egSetZeroBtn">设置零点（当前位置=0）</button>
+                        <button class="eg-btn eg-btn-primary eg-btn-full" id="egFindZeroBtn">回零（回到零点位置）</button>
+                        <button class="eg-btn eg-btn-outline eg-btn-full" id="egQueryIdBtn">查询电机 ID</button>
+                    </div>
+                </div>
+
+                <!-- 参数查询 -->
+                <div class="eg-card">
+                    <div class="eg-card-title"><span class="eg-icon eg-icon-query"></span> 参数查询</div>
+                    <div class="eg-btn-grid eg-btn-grid-3">
+                        <button class="eg-btn eg-btn-outline" id="egQueryPosBtn">位置</button>
+                        <button class="eg-btn eg-btn-outline" id="egQuerySpdBtn">速度</button>
+                        <button class="eg-btn eg-btn-outline" id="egQueryCurBtn">电流</button>
+                    </div>
+                </div>
+
+                <!-- 加速度 -->
+                <div class="eg-card">
+                    <div class="eg-card-title"><span class="eg-icon eg-icon-accel"></span> 加速度</div>
+                    <div class="eg-param-row">
+                        <input type="number" id="egAccelInput" value="10" min="1" max="1000" class="eg-input">
+                        <span class="eg-param-unit">rad/s²</span>
+                        <button class="eg-btn eg-btn-primary eg-btn-sm" id="egSetAccelBtn">设置</button>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- 右侧主内容 -->
+            <main class="eg-main">
+                <!-- 顶部：实时状态仪表 -->
+                <div class="eg-dashboard">
+                    <div class="eg-dash-header">
+                        <span class="eg-dash-title">实时状态</span>
+                        <span class="eg-dash-conn" id="egConnStatus">未连接</span>
+                    </div>
+                    <div class="eg-dash-grid">
+                        <div class="eg-metric eg-metric-pos">
+                            <div class="eg-metric-label">位置</div>
+                            <div class="eg-metric-value" id="egPositionVal">--</div>
+                            <div class="eg-metric-unit">deg</div>
+                        </div>
+                        <div class="eg-metric">
+                            <div class="eg-metric-label">速度</div>
+                            <div class="eg-metric-value" id="egVelocityVal">--</div>
+                            <div class="eg-metric-unit">rpm</div>
+                        </div>
+                        <div class="eg-metric">
+                            <div class="eg-metric-label">电流</div>
+                            <div class="eg-metric-value" id="egCurrentVal">--</div>
+                            <div class="eg-metric-unit">A</div>
+                        </div>
+                        <div class="eg-metric">
+                            <div class="eg-metric-label">电机温度</div>
+                            <div class="eg-metric-value" id="egMotorTempVal">--</div>
+                            <div class="eg-metric-unit">&deg;C</div>
+                        </div>
+                        <div class="eg-metric">
+                            <div class="eg-metric-label">MOS 温度</div>
+                            <div class="eg-metric-value" id="egMosTempVal">--</div>
+                            <div class="eg-metric-unit">&deg;C</div>
+                        </div>
+                        <div class="eg-metric eg-metric-err">
+                            <div class="eg-metric-label">错误码</div>
+                            <div class="eg-metric-value" id="egErrorCodeVal">--</div>
+                        </div>
+                        <div class="eg-metric" style="width:100%">
+                            <div class="eg-metric-label">CAN反馈帧</div>
+                            <div class="eg-metric-value" id="egRawFrameVal" style="font-family:monospace;font-size:12px;color:#a78bfa">--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 位置控制 -->
+                <div class="eg-card eg-pos-card">
+                    <div class="eg-card-title">位置控制</div>
+                    <div class="eg-pos-body">
+                        <div class="eg-pos-header">
+                            <span class="eg-pos-target-label">目标位置</span>
+                            <span class="eg-pos-target-val" id="egTargetPosLabel">0°</span>
+                        </div>
+                        <div class="eg-bar-wrap">
+                            <div class="eg-bar" id="egPositionBar"></div>
+                        </div>
+                        <div class="eg-pos-range-label">
+                            <span>0°</span>
+                            <span id="egActualPosLabel">实际: --</span>
+                            <span>4500°</span>
+                        </div>
+                        <input type="range" id="egPositionSlider" min="0" max="4500" value="0" step="10" class="eg-slider">
+                        <div class="eg-preset-row">
+                            <span class="eg-preset-label">预设:</span>
+                            <button class="eg-btn eg-btn-preset eg-preset-btn" data-pos="0">0°</button>
+                            <button class="eg-btn eg-btn-preset eg-preset-btn" data-pos="1800">1800°</button>
+                            <button class="eg-btn eg-btn-preset eg-preset-btn" data-pos="3600">3600°</button>
+                            <button class="eg-btn eg-btn-preset eg-preset-btn" data-pos="4500">4500°</button>
+                        </div>
+                        <div class="eg-pos-params">
+                            <div class="eg-param-group">
+                                <label>速度 (rpm)</label>
+                                <input type="number" id="egSpeedInput" value="3000" min="1" max="3276" step="10" class="eg-input eg-input-sm">
+                            </div>
+                            <div class="eg-param-group">
+                                <label>电流限制 (A)</label>
+                                <input type="number" id="egCurrentInput" value="4.0" min="0.1" max="4.0" step="0.1" class="eg-input eg-input-sm">
+                            </div>
+                            <button class="eg-btn eg-btn-primary" id="egMoveBtn">移动</button>
+                        </div>
+                        <div class="eg-warning">电流限制 ≤4A；0° 为最大打开，4500° 为最小捏合位置。</div>
+                    </div>
+                </div>
+
+                <!-- 下方三栏：速度 / 电流 / MIT -->
+                <div class="eg-bottom-row">
+                    <!-- 速度控制 -->
+                    <div class="eg-card eg-ctrl-card">
+                        <div class="eg-card-title">速度控制</div>
+                        <div class="eg-ctrl-body">
+                            <div class="eg-speed-dir-label">
+                                <span class="eg-dir-open">闭合 ←</span>
+                                <span class="eg-dir-val" id="egSpeedValLabel">0</span>
+                                <span>→ 打开</span>
+                            </div>
+                            <div class="eg-speed-bar-wrap">
+                                <div class="eg-speed-bar" id="egSpeedBar"></div>
+                                <div class="eg-speed-bar-center"></div>
+                            </div>
+                            <input type="range" id="egTargetSpeedInput" min="-500" max="500" value="0" step="10" class="eg-slider">
+                            <div class="eg-speed-quick">
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="-500">-500</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="-400">-400</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="-300">-300</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="-200">-200</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="-100">-100</button>
+                                <button class="eg-btn eg-btn-speed-adj eg-btn-speed-zero" data-delta="0">0</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="100">+100</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="200">+200</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="300">+300</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="400">+400</button>
+                                <button class="eg-btn eg-btn-speed-adj" data-delta="500">+500</button>
+                            </div>
+                            <div class="eg-ctrl-field">
+                                <label>电流限制 (A) <span class="eg-range-hint">max 4.0</span></label>
+                                <input type="number" id="egSpeedCurrentInput" value="1.0" min="0.1" max="4.0" step="0.1" class="eg-input">
+                            </div>
+                            <div class="eg-ctrl-btns">
+                                <button class="eg-btn eg-btn-primary" id="egSpeedCtrlBtn">执行</button>
+                                <button class="eg-btn eg-btn-danger" id="egSpeedStopBtn">停止</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 电流控制 -->
+                    <div class="eg-card eg-ctrl-card">
+                        <div class="eg-card-title">电流控制</div>
+                        <div class="eg-ctrl-body">
+                            <div class="eg-ctrl-field">
+                                <label>目标电流 (A)</label>
+                                <input type="number" id="egTargetCurrentInput" value="0" min="-4" max="4" step="0.1" class="eg-input">
+                            </div>
+                            <div class="eg-ctrl-btns" style="margin-top:12px">
+                                <button class="eg-btn eg-btn-primary" id="egCurrentCtrlBtn">执行</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- MIT 力位混控 -->
+                    <div class="eg-card eg-ctrl-card">
+                        <div class="eg-card-title">MIT 力位混控</div>
+                        <div class="eg-ctrl-body">
+                            <div class="eg-ctrl-field">
+                                <label>KP <span class="eg-range-hint">0~1200</span></label>
+                                <input type="range" id="egMitKpSlider" min="0" max="1200" value="100" step="1" class="eg-slider-sm">
+                                <span class="eg-slider-val" id="egMitKpVal">100</span>
+                            </div>
+                            <div class="eg-ctrl-field">
+                                <label>KD <span class="eg-range-hint">0~500</span></label>
+                                <input type="range" id="egMitKdSlider" min="0" max="500" value="10" step="1" class="eg-slider-sm">
+                                <span class="eg-slider-val" id="egMitKdVal">10</span>
+                            </div>
+                            <div class="eg-ctrl-field">
+                                <label>位置 (rad)</label>
+                                <input type="number" id="egMitPosInput" value="0" min="-12.5" max="12.5" step="0.1" class="eg-input">
+                            </div>
+                            <div class="eg-ctrl-field">
+                                <label>速度 (rad/s)</label>
+                                <input type="number" id="egMitSpeedInput" value="0" min="-12.56" max="12.56" step="0.1" class="eg-input">
+                            </div>
+                            <div class="eg-ctrl-field">
+                                <label>力矩 (mNm)</label>
+                                <input type="number" id="egMitTorqueInput" value="0" min="-450" max="450" step="1" class="eg-input">
+                            </div>
+                            <button class="eg-btn eg-btn-primary eg-btn-full" id="egMitExecBtn">执行 MIT</button>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Page: 剪刀石头布 -->
+    <div class="page" id="page-rps" style="display:none">
+        <div class="rps-layout">
+            <aside class="rps-sidebar">
+                <div class="rps-card">
+                    <div class="rps-card-title">相机</div>
+                    <select class="eg-input" id="rpsCameraSelect">
+                        <option value="">自动选择 IMX335</option>
+                    </select>
+                    <div class="rps-btn-row">
+                        <button class="eg-btn eg-btn-primary" id="rpsStartCameraBtn">开启相机</button>
+                        <button class="eg-btn eg-btn-outline" id="rpsStopCameraBtn">关闭</button>
+                    </div>
+                    <div class="rps-small-status" id="rpsCameraStatus">等待开启</div>
+                </div>
+
+                <div class="rps-card">
+                    <div class="rps-card-title">夹爪联动</div>
+                    <div class="rps-status-row">
+                        <span>电动夹爪</span>
+                        <strong id="rpsGripperSlot">未检测</strong>
+                    </div>
+                    <label class="rps-toggle-line">
+                        <input type="checkbox" id="rpsAutoPlayToggle" checked>
+                        <span>识别后自动出拳</span>
+                    </label>
+                    <div class="rps-btn-row">
+                        <button class="eg-btn eg-btn-primary" id="rpsEnableBtn">使能</button>
+                        <button class="eg-btn eg-btn-danger" id="rpsStopMotionBtn">停止</button>
+                    </div>
+                </div>
+
+                <div class="rps-card">
+                    <div class="rps-card-title">动作映射</div>
+                    <div class="rps-map-row"><span>识别剪刀</span><strong>夹爪 4500° 拳头</strong></div>
+                    <div class="rps-map-row"><span>识别拳头</span><strong>夹爪 0° 布</strong></div>
+                    <div class="rps-map-row"><span>识别布</span><strong>1800°/3600° 剪刀</strong></div>
+                </div>
+            </aside>
+
+            <main class="rps-main">
+                <section class="rps-stage">
+                    <video id="rpsVideo" class="rps-video" playsinline muted></video>
+                    <canvas id="rpsCanvas" class="rps-canvas"></canvas>
+                    <div class="rps-overlay">
+                        <div class="rps-gesture-pill" id="rpsGesturePill">等待手势</div>
+                        <div class="rps-confidence" id="rpsConfidence">--</div>
+                    </div>
+                </section>
+
+                <section class="rps-readout">
+                    <div class="rps-readout-card">
+                        <span>当前识别</span>
+                        <strong id="rpsUserGesture">--</strong>
+                    </div>
+                    <div class="rps-readout-card">
+                        <span>夹爪出拳</span>
+                        <strong id="rpsGripperGesture">--</strong>
+                    </div>
+                    <div class="rps-readout-card">
+                        <span>目标位置</span>
+                        <strong id="rpsTargetPosition">--</strong>
+                    </div>
+                    <div class="rps-readout-card">
+                        <span>状态</span>
+                        <strong id="rpsRoundStatus">待机</strong>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Saving overlay -->
+    <div class="save-overlay" id="saveOverlay" style="display:none">
+        <div class="save-overlay-box">
+            <div class="save-spinner" id="saveSpinner"></div>
+            <div class="save-checkmark" id="saveCheckmark" style="display:none">&#10003;</div>
+            <div class="save-text" id="saveText">正在保存...</div>
+        </div>
+    </div>
+
+    <!-- 目录浏览弹窗 -->
+    <div class="dir-modal-overlay" id="dirModalOverlay" style="display:none">
+        <div class="dir-modal">
+            <div class="dir-modal-header">
+                <span>选择目录</span>
+                <button class="dir-modal-close" id="dirModalClose">&times;</button>
+            </div>
+            <div class="dir-modal-path" id="dirModalPath">/</div>
+            <div class="dir-modal-list" id="dirModalList"></div>
+            <div class="dir-modal-footer">
+                <button class="record-btn record-btn-stop" id="dirModalCancel">取消</button>
+                <button class="record-btn" id="dirModalConfirm">确认选择</button>
+            </div>
+        </div>
+    </div>
+</body>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+<script src="/script.js?v=20260602deviceonly"></script>
+</html>

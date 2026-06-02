@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>项目说明 - 机器人数据采集平台</title>
+    <link rel="icon" type="image/png" href="favicon.png" sizes="96x96">
+    <link rel="stylesheet" href="/style.css">
+    <style>
+        body { overflow:auto; background:#eef2f6; color:#172033; }
+        .doc-shell { display:grid; grid-template-columns:260px minmax(0,1fr); min-height:calc(100vh - 48px); }
+        .doc-nav { border-right:1px solid #d9e1ea; background:#f8fafc; padding:18px 14px; position:sticky; top:0; height:calc(100vh - 48px); overflow:auto; scrollbar-width:none; }
+        .doc-nav::-webkit-scrollbar { display:none; }
+        .doc-nav-title { font-size:12px; font-weight:800; color:#64748b; margin:0 0 12px; }
+        .doc-nav a { display:block; padding:8px 10px; border-radius:6px; color:#334155; text-decoration:none; font-size:13px; font-weight:600; }
+        .doc-nav a:hover { background:#e8eef6; color:#1d4ed8; }
+        .doc-main { padding:24px 30px 56px; max-width:1180px; }
+        .doc-header, .doc-section { background:#fff; border:1px solid #dce3eb; border-radius:8px; box-shadow:0 1px 2px rgba(15,23,42,.04); }
+        .doc-header { padding:22px 24px; }
+        .doc-kicker { font-size:12px; color:#64748b; font-weight:800; margin-bottom:8px; }
+        .doc-header h1 { margin:0 0 8px; font-size:28px; line-height:1.25; color:#0f172a; letter-spacing:0; }
+        .doc-header p { margin:0; color:#475569; font-size:14px; line-height:1.8; max-width:900px; }
+        .doc-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-top:14px; }
+        .metric { border:1px solid #e2e8f0; border-radius:8px; background:#f8fafc; padding:12px; }
+        .metric span { display:block; color:#64748b; font-size:11px; margin-bottom:5px; }
+        .metric strong { display:block; color:#0f172a; font-size:16px; }
+        .doc-section { margin-top:16px; overflow:hidden; }
+        .doc-section h2 { margin:0; padding:14px 18px; border-bottom:1px solid #e2e8f0; font-size:17px; color:#0f172a; background:#f8fafc; }
+        .doc-body { padding:18px; }
+        .doc-body h3 { font-size:14px; color:#0f172a; margin:18px 0 8px; }
+        .doc-body h3:first-child { margin-top:0; }
+        .doc-body p, .doc-body li { font-size:13px; color:#475569; line-height:1.85; }
+        .doc-body ul, .doc-body ol { margin:8px 0 12px 20px; padding:0; }
+        .doc-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .doc-table th, .doc-table td { border-bottom:1px solid #e2e8f0; padding:10px 12px; text-align:left; vertical-align:top; }
+        .doc-table th { background:#f8fafc; color:#334155; font-weight:800; }
+        .doc-table td { color:#475569; }
+        .codebox { background:#0f172a; color:#dbeafe; border-radius:8px; padding:14px 16px; overflow:auto; font:12px/1.7 Consolas,Menlo,monospace; margin:10px 0; white-space:pre; }
+        .inline-code { background:#eef2ff; color:#1d4ed8; border-radius:4px; padding:1px 5px; font-family:Consolas,Menlo,monospace; font-size:12px; }
+        .callout { border-left:3px solid #2563eb; background:#eff6ff; padding:10px 12px; border-radius:6px; color:#334155; font-size:13px; line-height:1.75; margin:10px 0; }
+        .warnbox { border-left:3px solid #d97706; background:#fffbeb; padding:10px 12px; border-radius:6px; color:#574015; font-size:13px; line-height:1.75; margin:10px 0; }
+        @media (max-width: 920px) {
+            .doc-shell { grid-template-columns:1fr; }
+            .doc-nav { position:static; height:auto; border-right:none; border-bottom:1px solid #d9e1ea; }
+            .doc-grid { grid-template-columns:1fr 1fr; }
+            .doc-main { padding:16px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-left">
+            <img class="topbar-logo" src="favicon.png" alt="logo">
+            <div class="logo">数据采集平台</div>
+            <span class="topbar-title">项目说明与部署手册</span>
+        </div>
+        <div class="topbar-right">
+            <a class="gear-menu-item" href="/index_old.html">返回控制台</a>
+            <a class="gear-menu-item" href="/index.html">数据看板</a>
+        </div>
+    </header>
+
+    <div class="doc-shell">
+        <aside class="doc-nav">
+            <div class="doc-nav-title">目录</div>
+            <a href="#overview">系统概览</a>
+            <a href="#structure">工程结构</a>
+            <a href="#deploy">从零部署</a>
+            <a href="#build">编译运行</a>
+            <a href="#operate">操作流程</a>
+            <a href="#data">数据格式</a>
+            <a href="#git">Git 提交</a>
+            <a href="#migration">迁移打包</a>
+            <a href="#faq">常见问题</a>
+        </aside>
+
+        <main class="doc-main">
+            <section class="doc-header" id="overview">
+                <div class="doc-kicker">Robot Data Capture System</div>
+                <h1>机器人数据采集平台</h1>
+                <p>本项目用于多相机预览、夹爪数据采集、电动夹爪控制、点云采集、数据录制和 LeRobot/HDF5/RLDS 转换。当前主版本面向 Windows 10/11 x64，Linux 设备驱动层暂未完成统一适配。</p>
+                <div class="doc-grid">
+                    <div class="metric"><span>后端</span><strong>C++14</strong></div>
+                    <div class="metric"><span>前端</span><strong>原生 Web</strong></div>
+                    <div class="metric"><span>默认端口</span><strong>8080</strong></div>
+                    <div class="metric"><span>数据格式</span><strong>LeRobot/HDF5/RLDS</strong></div>
+                </div>
+            </section>
+
+            <section class="doc-section" id="structure">
+                <h2>工程结构</h2>
+                <div class="doc-body">
+                    <table class="doc-table">
+                        <thead><tr><th>目录/文件</th><th>作用</th><th>是否提交 Git</th></tr></thead>
+                        <tbody>
+                            <tr><td><span class="inline-code">src/</span>, <span class="inline-code">include/</span></td><td>C++ 后端、设备接入、录制、HTTP API</td><td>必须提交</td></tr>
+                            <tr><td><span class="inline-code">frontend/</span></td><td>数据看板、采集控制台、说明页面</td><td>必须提交</td></tr>
+                            <tr><td><span class="inline-code">tools/</span></td><td>数据转换脚本</td><td>必须提交</td></tr>
+                            <tr><td><span class="inline-code">lib/</span></td><td>海康、Orbbec、GCAN、UMI SDK 或放置位置</td><td>按授权决定，建议私有仓库提交</td></tr>
+                            <tr><td><span class="inline-code">config.json</span></td><td>默认端口、数据路径、采集参数</td><td>提交默认模板</td></tr>
+                            <tr><td><span class="inline-code">build/</span></td><td>exe、DLL、构建缓存</td><td>不提交</td></tr>
+                            <tr><td><span class="inline-code">data_capture/</span></td><td>原始采集数据</td><td>不提交</td></tr>
+                            <tr><td><span class="inline-code">data_converted/</span></td><td>转换后的训练数据</td><td>不提交</td></tr>
+                        </tbody>
+                    </table>
+                    <div class="warnbox">不要只复制 <span class="inline-code">ManualGripper.exe</span>。运行还需要 DLL、前端、配置、SDK 和转换脚本。</div>
+                </div>
+            </section>
+
+            <section class="doc-section" id="deploy">
+                <h2>从零部署</h2>
+                <div class="doc-body">
+                    <h3>1. 准备电脑</h3>
+                    <ol>
+                        <li>使用 Windows 10/11 64 位系统。</li>
+                        <li>建议项目路径使用英文，例如 <span class="inline-code">C:\Robot\ManualGripper</span>。</li>
+                        <li>准备管理员权限，用于安装相机、串口和 CAN 驱动。</li>
+                    </ol>
+
+                    <h3>2. 安装 MSYS2 和编译依赖</h3>
+                    <div class="codebox">pacman -Syu
+pacman -S --needed mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make mingw-w64-x86_64-opencv mingw-w64-x86_64-eigen3 mingw-w64-x86_64-python</div>
+
+                    <h3>3. 安装 Python 转换依赖</h3>
+                    <div class="codebox">python -m pip install --upgrade pip
+python -m pip install -r requirements.txt</div>
+
+                    <h3>4. 安装硬件驱动</h3>
+                    <ul>
+                        <li>海康：安装 MVS 客户端和 USB/GigE 相机驱动。</li>
+                        <li>Orbbec：安装 Orbbec SDK/Viewer/驱动。</li>
+                        <li>UMI：插入后确认 Windows 设备管理器能看到 COM 口。</li>
+                        <li>GCAN：安装 USBCAN 驱动，确认 CAN 线、电源和终端电阻。</li>
+                        <li>IMX335：作为 UVC 摄像头使用，先用 Windows 相机 App 测试。</li>
+                    </ul>
+
+                    <h3>5. 检查 SDK 目录</h3>
+                    <div class="codebox">lib/hikvision/include
+lib/hikvision/lib/win64/MvCameraControl.lib
+lib/orbbec/include
+lib/orbbec/lib/win64/OrbbecSDK.dll
+lib/gcan/ECanVci64.dll
+lib/gcan/CHUSBDLL64.dll</div>
+                </div>
+            </section>
+
+            <section class="doc-section" id="build">
+                <h2>编译运行</h2>
+                <div class="doc-body">
+                    <h3>MSYS2 MINGW64 编译</h3>
+                    <div class="codebox">cd /c/Robot/ManualGripper
+mkdir -p build
+cd build
+cmake .. -G "MinGW Makefiles"
+mingw32-make -j4</div>
+
+                    <h3>PowerShell 编译</h3>
+                    <div class="codebox">cd C:\Robot\ManualGripper
+$env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+cmake -S . -B build -G "MinGW Makefiles"
+cmake --build build --config Release</div>
+
+                    <h3>启动服务</h3>
+                    <div class="codebox">cd C:\Robot\ManualGripper\build
+.\ManualGripper.exe</div>
+                    <p>启动后访问 <span class="inline-code">http://localhost:8080</span>。如果缺 DLL，回到项目根目录运行 <span class="inline-code">.\collect_dlls.ps1</span>。</p>
+                </div>
+            </section>
+
+            <section class="doc-section" id="operate">
+                <h2>操作流程</h2>
+                <div class="doc-body">
+                    <ol>
+                        <li>进入采集控制台：<span class="inline-code">/index_old.html</span>。</li>
+                        <li>点击“重新扫描设备”，确认右上角设备信息和左侧开关都更新。</li>
+                        <li>打开需要的彩色、深度、红外、点云或夹爪流。</li>
+                        <li>进入“数据采集”，选择需要录制的数据项。</li>
+                        <li>点击开始录制，完成动作后点击停止录制。</li>
+                        <li>进入“数据转换”，选择会话并转换为 LeRobot/HDF5/RLDS。</li>
+                        <li>回到数据看板检查历史记录。</li>
+                    </ol>
+                    <p>海康只显示彩色流；Orbbec 显示彩色、深度、红外和点云。设备切换后如果左侧没有更新，先关闭相关预览流，再点击“重新扫描设备”。</p>
+                </div>
+            </section>
+
+            <section class="doc-section" id="data">
+                <h2>数据格式</h2>
+                <div class="doc-body">
+                    <div class="codebox">data_capture/20260602_103000/
+├─ Head-umi/
+│  ├─ color_video/
+│  ├─ depth_video/
+│  ├─ ir-left_video/
+│  ├─ ir-right_video/
+│  └─ pointcloud_data/
+├─ Left-umi/
+│  ├─ color_video/
+│  └─ gripper_data/
+├─ Right-umi/
+│  ├─ color_video/
+│  └─ gripper_data/
+└─ metadata.json</div>
+                    <p>视频目录中保存 <span class="inline-code">mp4</span> 和 <span class="inline-code">timestamps.csv</span>。夹爪目录保存 <span class="inline-code">gripper.csv</span>。转换输出位于 <span class="inline-code">data_converted/</span>。</p>
+                </div>
+            </section>
+
+            <section class="doc-section" id="git">
+                <h2>Git 提交</h2>
+                <div class="doc-body">
+                    <h3>首次创建仓库</h3>
+                    <div class="codebox">git init
+git status
+git add .gitattributes .gitignore README.md requirements.txt CMakeLists.txt config.json collect_dlls.ps1 setup_orbbec_sdk.ps1 docs frontend include src tools lib
+git commit -m "Initial data capture platform"
+git remote add origin &lt;你的仓库地址&gt;
+git branch -M main
+git push -u origin main</div>
+
+                    <h3>后续更新</h3>
+                    <div class="codebox">git status
+git add README.md docs frontend include src tools config.json requirements.txt .gitignore .gitattributes
+git commit -m "Update deployment docs and device logic"
+git push</div>
+
+                    <h3>别人拉取</h3>
+                    <div class="codebox">git clone &lt;你的仓库地址&gt; ManualGripper
+cd ManualGripper
+python -m pip install -r requirements.txt</div>
+                    <div class="callout">提交前确认 <span class="inline-code">build/</span>、<span class="inline-code">data_capture/</span>、<span class="inline-code">data_converted/</span> 没有进入待提交列表。</div>
+                </div>
+            </section>
+
+            <section class="doc-section" id="migration">
+                <h2>迁移打包</h2>
+                <div class="doc-body">
+                    <p>源码仓库版需要保留：</p>
+                    <div class="codebox">CMakeLists.txt
+config.json
+requirements.txt
+README.md
+docs/
+frontend/
+include/
+src/
+tools/
+lib/</div>
+                    <p>现场运行版可以额外保留 <span class="inline-code">build/</span>、<span class="inline-code">data_capture/</span> 和 <span class="inline-code">data_converted/</span>，用于当前电脑直接运行和保留历史数据。</p>
+                </div>
+            </section>
+
+            <section class="doc-section" id="faq">
+                <h2>常见问题</h2>
+                <div class="doc-body">
+                    <h3>页面打不开</h3>
+                    <p>确认 <span class="inline-code">ManualGripper.exe</span> 正在运行，默认端口为 <span class="inline-code">8080</span>。</p>
+                    <h3>右上角能看到设备，左侧没有开关</h3>
+                    <p>右上角显示检测列表，左侧显示已挂载的采集槽位。点击“重新扫描设备”，必要时先关闭旧预览流。</p>
+                    <h3>三路海康卡顿</h3>
+                    <p>降低 <span class="inline-code">camera.maxWidth</span>、<span class="inline-code">camera.maxHeight</span> 或 <span class="inline-code">camera.fps</span>。三路 USB 相机不建议满分辨率满帧率预览。</p>
+                    <h3>转换失败</h3>
+                    <p>确认已安装 <span class="inline-code">numpy pyarrow h5py crcmod</span>，并检查原始会话中是否有有效视频和 <span class="inline-code">metadata.json</span>。</p>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+</html>

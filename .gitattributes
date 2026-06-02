@@ -1,0 +1,21 @@
+* text=auto
+*.cpp text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.dll binary
+*.lib binary
+*.so binary
+*.mp4 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.hdf5 binary
+*.parquet binary
+*.tfrecord binary

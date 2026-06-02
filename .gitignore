@@ -1,0 +1,45 @@
+# 构建产物
+build/
+out/
+dist/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+*.ninja
+*.obj
+*.o
+*.obj.d
+*.pdb
+*.ilk
+*.exp
+*.exe
+
+# 采集和转换数据
+data_capture/
+data_converted/
+
+# 日志、缓存和临时文件
+*.log
+crash.log
+Log/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+hello_out.txt
+hello_err.txt
+_history.txt
+
+# IDE 和系统文件
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.swp
+.DS_Store
+Thumbs.db
+
+# 本地私有配置。config.json 作为默认模板保留在仓库中。
+config.local.json

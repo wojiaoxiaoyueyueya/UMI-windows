@@ -1,0 +1,110 @@
+<!-- index.html - 卓誉科技数据采集管理平台主页面 -->
+<!-- 功能：数据统计概览、数据浏览（采集/转换）、数据详情查看 -->
+<!-- 依赖：dashboard.css、dashboard.js -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>卓誉科技数据采集管理平台</title>
+    <link rel="icon" type="image/png" href="favicon.png" sizes="96x96">
+    <link rel="stylesheet" href="dashboard.css?v=20260529ui">
+</head>
+<body>
+    <div class="app-container">
+        <!-- 侧边栏导航 -->
+        <aside class="sidebar">
+            <!-- Logo 区域 -->
+            <div class="sidebar-logo">
+                <a class="logo-link" href="index.html"><img class="logo-img" src="logo.png" alt="数据管理平台"></a>
+                <div>
+                    <div class="logo-sub">数据管理平台</div>
+                </div>
+            </div>
+            <!-- 导航菜单 -->
+            <nav class="sidebar-nav">
+                <!-- 数据中心：数据统计视图 -->
+                <div class="nav-section">
+                    <div class="nav-section-title">数据中心</div>
+                    <div class="nav-item active" data-view="statistics">
+                        <span class="nav-icon">&#128202;</span>
+                        <span>数据统计</span>
+                    </div>
+                </div>
+                <!-- 数据管理：可展开的子菜单 -->
+                <div class="nav-section">
+                    <div class="nav-section-title">数据管理</div>
+                    <!-- 数据查看（点击展开/收起子菜单） -->
+                    <div class="nav-item nav-toggle" id="data-view-toggle" data-view="data-view">
+                        <span class="nav-icon">&#128194;</span>
+                        <span>数据查看</span>
+                        <span class="nav-arrow">&#9654;</span>
+                    </div>
+                    <!-- 子菜单：采集数据 / 转换数据 -->
+                    <div class="nav-sub" id="data-view-sub">
+                        <div class="nav-item" data-view="data-view" data-sub="collect">
+                            <span class="nav-icon">&#127909;</span>
+                            <span>采集数据</span>
+                        </div>
+                        <div class="nav-item" data-view="data-view" data-sub="converted">
+                            <span class="nav-icon">&#128260;</span>
+                            <span>转换数据</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- 控制面板：跳转到采集控制台 -->
+                <div class="nav-section">
+                    <div class="nav-section-title">控制面板</div>
+                    <div class="nav-item" onclick="location.href='index_old.html'">
+                        <span class="nav-icon">&#9881;</span>
+                        <span>采集控制台</span>
+                    </div>
+                </div>
+            </nav>
+            <!-- 侧边栏底部：设备信息 -->
+            <div class="sidebar-footer">
+                <div id="sidebar-device-info" style="padding:8px 12px;font-size:11px;color:var(--text-dim);border-top:1px solid var(--border);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span>左摄像头</span><span id="sb-left-status" style="color:var(--text-dim)">未连接</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;">
+                        <span>右摄像头</span><span id="sb-right-status" style="color:var(--text-dim)">未连接</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;">
+                        <span>夹爪-左</span><span id="sb-gripper-left-status" style="color:var(--text-dim)">未连接</span>
+                    </div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:3px;">
+                        <span>夹爪-右</span><span id="sb-gripper-right-status" style="color:var(--text-dim)">未连接</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <button class="sidebar-toggle-btn" id="sidebarToggleBtn">&#8249;</button>
+
+        <!-- 主内容区域（由 dashboard.js 动态渲染） -->
+        <main class="main-content" id="main-content">
+            <div class="empty-state">
+                <div class="empty-state-icon">&#8987;</div>
+                <div class="empty-state-text">加载中...</div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 模态框（数据详情弹窗） -->
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-title">详情</div>
+                <button class="modal-close" onclick="window.__dashboard.closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body"></div>
+        </div>
+    </div>
+
+    <!-- Toast 消息容器（操作提示） -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <script src="dashboard.js?v=20260515b"></script>
+</body>
+</html>

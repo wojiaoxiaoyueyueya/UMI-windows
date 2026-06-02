@@ -1,0 +1,54 @@
+{
+    "server": {
+        "port": 8080
+    },
+    "paths": {
+        "frontendDir": "frontend",
+        "dataDir": "data_capture",
+        "convertOutputDir": "data_converted",
+        "convertScript": "tools/convert_to_lerobot.py"
+    },
+    "camera": {
+        "fisheyeK1": -1.0,
+        "fisheyeK2": 0.4,
+        "fisheyeScale": 1.5,
+        "brightness": 15,
+        "contrast": 1.1,
+        "maxWidth": 1280,
+        "maxHeight": 720,
+        "fps": 30
+    },
+    "devices": {
+        "left": {
+            "type": "auto",
+            "preferredType": "orbbec",
+            "serialHint": ""
+        },
+        "right": {
+            "type": "auto",
+            "preferredType": "hikvision",
+            "serialHint": ""
+        }
+    },
+    "grippers": {
+        "left": {
+            "type": "auto",
+            "preferredType": "manual"
+        },
+        "right": {
+            "type": "auto",
+            "preferredType": "manual"
+        }
+    },
+    "stream": {
+        "encodeIntervalMs": 30,
+        "streamIntervalMs": 33,
+        "jpegQuality": 95,
+        "streamMaxWidth": 640,
+        "frameSkipMs": 33
+    },
+    "slam": {
+        "enabled": true,
+        "depthScale": 0.001
+    }
+}
