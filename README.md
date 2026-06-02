@@ -39,7 +39,7 @@ ManualGripper/
    └─ umi/
 ```
 
-不建议提交到 Git 的内容：
+我没有提交到 Git 的内容：
 
 - `build/`：构建产物、exe、DLL、日志，可重新生成。
 - `data_capture/`：采集得到的原始数据，通常很大。
