@@ -38,6 +38,7 @@ DeviceManager::DeviceManager(const Config& cfg) : cfg_(cfg) {
     slots_["head"]  = DeviceSlot("head");
     gripperSlots_["left"]  = GripperSlot("left");
     gripperSlots_["right"] = GripperSlot("right");
+    gripperSlots_["extra"] = GripperSlot("extra");
 }
 
 DeviceManager::~DeviceManager() = default;
@@ -359,9 +360,10 @@ bool DeviceManager::attachDetectedGrippersToEmptySlots(bool allowElectricScan) {
     if (!canAvailable) return changed;
 
     std::string electricSlot;
-    for (const auto& kv : gripperSlots_) {
-        if (!kv.second.connected) {
-            electricSlot = kv.first;
+    for (const auto& slotName : {std::string("left"), std::string("right"), std::string("extra")}) {
+        auto it = gripperSlots_.find(slotName);
+        if (it != gripperSlots_.end() && !it->second.connected) {
+            electricSlot = slotName;
             break;
         }
     }
@@ -369,6 +371,11 @@ bool DeviceManager::attachDetectedGrippersToEmptySlots(bool allowElectricScan) {
 
     auto gripper = std::make_unique<ElectricGripper>();
     if (gripper->openCAN(&canWrapper, 0x15)) {
+        DetectedGripper dg;
+        dg.type = "electric";
+        dg.port = gripper->getPortName();
+        dg.connected = true;
+        detectedGrippers_.push_back(dg);
         gripperSlots_[electricSlot].gripperType = "electric";
         gripperSlots_[electricSlot].gripper = std::move(gripper);
         gripperSlots_[electricSlot].connected = true;
@@ -880,15 +887,6 @@ void DeviceManager::detectAndAssignGrippers() {
         fprintf(stderr, "[DeviceManager] ECanVci64.dll 未找到，跳过 CAN 电动夹爪检测\n");
     }
 
-    if (canAvailable) {
-        DetectedGripper dg;
-        dg.type = "electric";
-        dg.port = "CAN:auto";
-        dg.connected = true;
-        detectedGrippers_.push_back(dg);
-        fprintf(stderr, "[DeviceManager] 检测到 CAN 电动夹爪\n");
-    }
-
     // 按 USB VID 固定分配左右手
     for (auto& c : candidates) {
         auto& slot = gripperSlots_[c.side];
@@ -909,14 +907,23 @@ void DeviceManager::detectAndAssignGrippers() {
         }
     }
 
-    // 电动夹爪：分配到第一个空槽（std::map有序，优先左手）
+    // 电动夹爪：优先沿用 left/right 空槽；两个手动夹爪都已连接时，放入 extra 额外槽。
     std::string electricSlot;
-    for (auto& kv : gripperSlots_) {
-        if (!kv.second.connected) { electricSlot = kv.first; break; }
+    for (const auto& slotName : {std::string("left"), std::string("right"), std::string("extra")}) {
+        auto it = gripperSlots_.find(slotName);
+        if (it != gripperSlots_.end() && !it->second.connected) {
+            electricSlot = slotName;
+            break;
+        }
     }
     if (!electricSlot.empty() && canAvailable) {
         auto gripper = std::make_unique<ElectricGripper>();
         if (gripper->openCAN(&canWrapper, 0x15)) {
+            DetectedGripper dg;
+            dg.type = "electric";
+            dg.port = gripper->getPortName();
+            dg.connected = true;
+            detectedGrippers_.push_back(dg);
             gripperSlots_[electricSlot].gripperType = "electric";
             gripperSlots_[electricSlot].gripper = std::move(gripper);
             gripperSlots_[electricSlot].connected = true;

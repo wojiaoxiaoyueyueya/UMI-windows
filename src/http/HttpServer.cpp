@@ -48,8 +48,10 @@ HttpServer::HttpServer(const Config& cfg, const std::string& frontendDir)
     cameraStates_["head"];
     gripperWebStates_["left"];
     gripperWebStates_["right"];
+    gripperWebStates_["extra"];
     electricGripperWebStates_["left"];
     electricGripperWebStates_["right"];
+    electricGripperWebStates_["extra"];
 }
 
 HttpServer::~HttpServer() { stop(); }

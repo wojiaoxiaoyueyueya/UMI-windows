@@ -21,10 +21,12 @@ http://localhost:8080
 - Orbbec 奥比中光相机彩色、深度、红外、点云采集。
 - UMI 手动夹爪位置、按钮、LED 状态采集。
 - GCAN 电动夹爪位置、速度、电流、温度、错误码控制和采集。
+- 支持两个 UMI 手动夹爪加一个 CAN 电动夹爪同时在线，电动夹爪会挂载到额外夹爪槽。
 - 数据采集开始、停止、保存、历史记录查看和删除。
 - 视频帧、夹爪数据、点云数据统一时间戳记录。
 - 原始数据转换为 LeRobot、HDF5、RLDS。
 - 剪刀石头布功能：使用 IMX335/UVC 相机识别手势，并联动电动夹爪出拳。
+- 夹爪遥控功能：选择一个手动夹爪作为遥控输入，将手动捏合位置实时映射到电动夹爪行程。
 
 ## 2. 当前支持的系统
 
@@ -58,6 +60,19 @@ USB: 推荐 USB 3.0，多个相机尽量直连主机
 | 手动夹爪 | UMI 手动夹爪 | 位置、按钮、LED、录制联动 | USB 串口 |
 | 电动夹爪 | CAN 电动夹爪 | 位置、速度、电流、MIT、急停 | GCAN USBCAN |
 | 手势相机 | IMX335 UVC 相机 | 剪刀石头布手势识别 | 浏览器摄像头 API |
+
+夹爪槽位说明：
+
+```text
+left  = 左侧手动夹爪槽，主要用于监控、采集和录制联动
+right = 右侧手动夹爪槽，主要用于监控、采集和录制联动
+extra = 额外夹爪槽，两个手动夹爪都连接后，CAN 电动夹爪会挂载到这里
+```
+
+说明：
+
+- 夹爪监控和数据采集页面仍按原来的左/右手动夹爪逻辑显示，不会额外增加第三个采集开关。
+- 电动夹爪控制、剪刀石头布、夹爪遥控会自动查找任意槽位中的电动夹爪，包括 `extra`。
 
 电动夹爪当前统一行程：
 
@@ -264,10 +279,12 @@ mingw32-make -j4
 
 ```powershell
 cd C:\Robot\ManualGripper
-$env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
 cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build --config Release
 ```
+
+如果 PowerShell 编译时 `cc1plus.exe` 或 `g++.exe` 没有明显错误但直接失败，通常是 `PATH` 缺少 MSYS2 运行库路径。先确认已经执行上面的 `$env:PATH = ...`，再重新编译。
 
 编译成功后，会生成：
 
@@ -324,11 +341,60 @@ http://localhost:8080/info.html       项目说明页面
 7. Orbbec 相机会有彩色、深度、红外、点云。
 8. 打开夹爪监控，确认手动夹爪位置和按钮状态正常。
 9. 如果使用电动夹爪，先确认 CAN 连接，再小范围测试位置控制。
-10. 进入数据采集页，录制 5 秒测试数据。
-11. 停止录制后，确认 `data_capture/` 下生成新会话。
-12. 进入数据转换页，尝试转换成 LeRobot 或 HDF5。
+10. 如果同时连接两个手动夹爪和一个电动夹爪，右上角设备信息里应显示左夹爪、右夹爪、额外夹爪三个槽位。
+11. 进入剪刀石头布或夹爪遥控页面，确认页面能识别到电动夹爪。
+12. 进入数据采集页，录制 5 秒测试数据。
+13. 停止录制后，确认 `data_capture/` 下生成新会话。
+14. 进入数据转换页，尝试转换成 LeRobot 或 HDF5。
 
-## 10. 采集数据保存在哪里
+## 10. 主要页面怎么用
+
+### 数据看板
+
+访问：
+
+```text
+http://localhost:8080/index.html
+```
+
+用于查看历史会话、采集结果和转换结果。
+
+### 采集控制台
+
+访问：
+
+```text
+http://localhost:8080/index_old.html
+```
+
+包含夹爪监控、数据采集、数据转换、夹爪控制、电动夹爪控制、剪刀石头布和夹爪遥控。
+
+### 电动夹爪控制
+
+1. 确认 GCAN 适配器和电动夹爪供电正常。
+2. 点击“重新扫描设备”。
+3. 如果两个手动夹爪都在线，电动夹爪会显示在 `extra` 额外槽。
+4. 先点击“使能”，再小范围移动位置。
+5. 异常时使用“急停”或“停止”。
+
+### 剪刀石头布
+
+1. 插入 IMX335 相机。
+2. 打开页面后选择或自动选择 IMX335。
+3. 浏览器询问摄像头权限时点击允许。
+4. 识别到剪刀、石头、布后，电动夹爪会按映射动作出拳。
+
+### 夹爪遥控
+
+1. 同时连接至少一个手动夹爪和一个电动夹爪。
+2. 在“手动夹爪”下拉框选择要用来遥控的夹爪。
+3. 电动夹爪会自动选择当前检测到的 CAN 电动夹爪。
+4. 默认映射为手动位置 `0~1` 对应电动行程 `0°~4500°`。
+5. 如果方向反了，勾选“反向映射”。
+6. 如果行程不准，用“取当前最小”和“取当前最大”重新标定。
+7. 点击“开始遥控”后，手动捏合会实时同步到电动夹爪。
+
+## 11. 采集数据保存在哪里
 
 默认原始数据目录：
 
@@ -374,7 +440,7 @@ gripper.csv
 data_converted/
 ```
 
-## 11. 常用配置
+## 12. 常用配置
 
 配置文件：
 
@@ -427,7 +493,7 @@ config.json
 }
 ```
 
-## 12. 常见问题
+## 13. 常见问题
 
 ### 页面打不开
 
@@ -487,6 +553,16 @@ http://localhost:8080
 
 首次测试电动夹爪时，不要直接发送大行程。
 
+### 两个手动夹爪在线时识别不到电动夹爪
+
+新版逻辑会把第三个 CAN 电动夹爪挂到 `extra` 额外槽。处理顺序：
+
+1. 停止旧服务，重新编译并启动最新版。
+2. 插好两个手动夹爪、GCAN 适配器和电动夹爪电源。
+3. 打开采集控制台，点击“重新扫描设备”。
+4. 打开右上角设备信息，确认“夹爪槽位”里有“额外夹爪 · 电动夹爪”。
+5. 进入电动夹爪控制、剪刀石头布或夹爪遥控页面测试。
+
 ### 数据转换失败
 
 确认安装了 Python 依赖：
@@ -503,7 +579,7 @@ metadata.json
 timestamps.csv
 ```
 
-## 13. Git 使用说明
+## 14. Git 使用说明
 
 这个项目已经配置了 `.gitignore`，默认不会提交：
 
@@ -528,8 +604,24 @@ git push -u origin main
 
 ```bash
 git status
-git add README.md docs frontend include src tools config.json requirements.txt .gitignore .gitattributes
-git commit -m "Update project"
+git add README.md frontend include src
+git commit -m "Add gripper teleoperation and extra electric gripper slot"
+git pull --rebase origin master
+git push
+```
+
+如果你的远程分支叫 `main`，把上面的 `master` 改成 `main`：
+
+```bash
+git pull --rebase origin main
+git push origin main
+```
+
+如果 `git pull --rebase` 出现冲突，先不要继续 `push`，打开冲突文件解决后执行：
+
+```bash
+git add <已解决的文件>
+git rebase --continue
 git push
 ```
 
@@ -541,7 +633,7 @@ cd ManualGripper
 python -m pip install -r requirements.txt
 ```
 
-## 14. 给别人使用时怎么打包
+## 15. 给别人使用时怎么打包
 
 推荐两种方式。
 
@@ -571,7 +663,7 @@ README.md
 
 运行版仍然要求对方安装相机、串口、CAN 等硬件驱动。
 
-## 15. 重要提醒
+## 16. 重要提醒
 
 如果仓库是公开仓库，请确认海康、Orbbec、GCAN 等 SDK 是否允许公开分发。  
 如果不确定，建议使用私有仓库，或者只提交 `lib/` 目录结构和放置说明，让使用者自己从厂商官网下载 SDK。

@@ -28,7 +28,7 @@ struct DetectedGripper {
 };
 
 struct GripperSlot {
-    std::string position;       // "left" or "right"
+    std::string position;       // "left", "right", or "extra"
     std::string gripperType;    // "manual", "electric", or "none"
     std::unique_ptr<IGripper> gripper;
     bool connected = false;
@@ -101,7 +101,7 @@ private:
 
     Config cfg_;
     std::map<std::string, DeviceSlot> slots_;          // "left"/"right"/"head" -> camera slot
-    std::map<std::string, GripperSlot> gripperSlots_;  // "left"/"right" -> gripper slot
+    std::map<std::string, GripperSlot> gripperSlots_;  // "left"/"right"/"extra" -> gripper slot
     std::vector<DetectedDevice> detectedDevices_;
     std::vector<DetectedGripper> detectedGrippers_;
     std::vector<std::unique_ptr<ICamera>> retiredCameras_;

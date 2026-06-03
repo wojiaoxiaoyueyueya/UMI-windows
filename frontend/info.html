@@ -78,12 +78,12 @@
             <section class="doc-header" id="overview">
                 <div class="doc-kicker">Robot Data Capture System</div>
                 <h1>机器人数据采集平台</h1>
-                <p>本项目用于多相机预览、夹爪数据采集、电动夹爪控制、点云采集、数据录制和 LeRobot/HDF5/RLDS 转换。当前主版本面向 Windows 10/11 x64，Linux 设备驱动层暂未完成统一适配。</p>
+                <p>本项目用于多相机预览、夹爪数据采集、电动夹爪控制、夹爪遥控、点云采集、数据录制和 LeRobot/HDF5/RLDS 转换。当前主版本面向 Windows 10/11 x64，Linux 设备驱动层暂未完成统一适配。</p>
                 <div class="doc-grid">
                     <div class="metric"><span>后端</span><strong>C++14</strong></div>
                     <div class="metric"><span>前端</span><strong>原生 Web</strong></div>
                     <div class="metric"><span>默认端口</span><strong>8080</strong></div>
-                    <div class="metric"><span>数据格式</span><strong>LeRobot/HDF5/RLDS</strong></div>
+                    <div class="metric"><span>夹爪槽位</span><strong>left/right/extra</strong></div>
                 </div>
             </section>
 
@@ -141,6 +141,7 @@ lib/orbbec/include
 lib/orbbec/lib/win64/OrbbecSDK.dll
 lib/gcan/ECanVci64.dll
 lib/gcan/CHUSBDLL64.dll</div>
+                    <div class="callout">夹爪槽位为 <span class="inline-code">left</span>、<span class="inline-code">right</span>、<span class="inline-code">extra</span>。两个 UMI 手动夹爪都在线时，CAN 电动夹爪会挂载到 <span class="inline-code">extra</span> 额外槽。</div>
                 </div>
             </section>
 
@@ -156,9 +157,10 @@ mingw32-make -j4</div>
 
                     <h3>PowerShell 编译</h3>
                     <div class="codebox">cd C:\Robot\ManualGripper
-$env:PATH = "C:\msys64\mingw64\bin;" + $env:PATH
+$env:PATH = "C:\msys64\mingw64\bin;C:\msys64\usr\bin;" + $env:PATH
 cmake -S . -B build -G "MinGW Makefiles"
 cmake --build build --config Release</div>
+                    <p>如果 PowerShell 编译时 <span class="inline-code">cc1plus.exe</span> 或 <span class="inline-code">g++.exe</span> 直接失败但没有明确错误，通常是缺少 MSYS2 运行库路径，先补上上面的 <span class="inline-code">PATH</span> 再重新编译。</p>
 
                     <h3>启动服务</h3>
                     <div class="codebox">cd C:\Robot\ManualGripper\build
@@ -180,6 +182,13 @@ cmake --build build --config Release</div>
                         <li>回到数据看板检查历史记录。</li>
                     </ol>
                     <p>海康只显示彩色流；Orbbec 显示彩色、深度、红外和点云。设备切换后如果左侧没有更新，先关闭相关预览流，再点击“重新扫描设备”。</p>
+                    <h3>电动夹爪与遥控</h3>
+                    <ul>
+                        <li>电动夹爪控制、剪刀石头布、夹爪遥控会自动查找任意槽位中的电动夹爪。</li>
+                        <li>两个手动夹爪都连接时，电动夹爪会显示为 <span class="inline-code">extra</span> 额外夹爪。</li>
+                        <li>夹爪遥控页面可以选择任意手动夹爪作为输入，将捏合位置实时映射到电动夹爪 <span class="inline-code">0°~4500°</span> 行程。</li>
+                        <li>如果遥控方向相反，勾选“反向映射”；如果范围不准，使用“取当前最小/取当前最大”重新标定。</li>
+                    </ul>
                 </div>
             </section>
 
@@ -218,9 +227,11 @@ git push -u origin main</div>
 
                     <h3>后续更新</h3>
                     <div class="codebox">git status
-git add README.md docs frontend include src tools config.json requirements.txt .gitignore .gitattributes
-git commit -m "Update deployment docs and device logic"
+git add README.md frontend include src
+git commit -m "Add gripper teleoperation and extra electric gripper slot"
+git pull --rebase origin master
 git push</div>
+                    <p>如果远程分支叫 <span class="inline-code">main</span>，把 <span class="inline-code">master</span> 改成 <span class="inline-code">main</span>。如果 rebase 出现冲突，解决冲突后执行 <span class="inline-code">git add</span> 和 <span class="inline-code">git rebase --continue</span>。</p>
 
                     <h3>别人拉取</h3>
                     <div class="codebox">git clone &lt;你的仓库地址&gt; ManualGripper
@@ -255,6 +266,8 @@ lib/</div>
                     <p>确认 <span class="inline-code">ManualGripper.exe</span> 正在运行，默认端口为 <span class="inline-code">8080</span>。</p>
                     <h3>右上角能看到设备，左侧没有开关</h3>
                     <p>右上角显示检测列表，左侧显示已挂载的采集槽位。点击“重新扫描设备”，必要时先关闭旧预览流。</p>
+                    <h3>两个手动夹爪在线时识别不到电动夹爪</h3>
+                    <p>新版会把第三个 CAN 电动夹爪挂到 <span class="inline-code">extra</span> 额外槽。重新编译并重启服务后，点击“重新扫描设备”，右上角设备信息的“夹爪槽位”应显示“额外夹爪 · 电动夹爪”。</p>
                     <h3>三路海康卡顿</h3>
                     <p>降低 <span class="inline-code">camera.maxWidth</span>、<span class="inline-code">camera.maxHeight</span> 或 <span class="inline-code">camera.fps</span>。三路 USB 相机不建议满分辨率满帧率预览。</p>
                     <h3>转换失败</h3>

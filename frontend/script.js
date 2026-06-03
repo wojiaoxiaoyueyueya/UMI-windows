@@ -325,6 +325,7 @@
     function gripperSlotLabel(pos) {
         if (pos === 'left') return '左夹爪';
         if (pos === 'right') return '右夹爪';
+        if (pos === 'extra') return '额外夹爪';
         return pos || '未知夹爪';
     }
 
@@ -363,8 +364,18 @@
 
         var devices = serviceDisconnected ? [] : (data.devices || []);
         var grippers = serviceDisconnected ? [] : (data.grippers || []);
+        var gripperSlots = serviceDisconnected ? {} : (data.gripperSlots || {});
         var connectedCameraCount = devices.filter(function(dev) { return !!dev.serial; }).length;
-        var connectedGripperCount = grippers.filter(function(g) { return g.connected !== false; }).length;
+        var slotNames = ['left', 'right', 'extra'].filter(function(pos) { return gripperSlots[pos]; });
+        Object.keys(gripperSlots).forEach(function(pos) {
+            if (slotNames.indexOf(pos) < 0) slotNames.push(pos);
+        });
+        var connectedGripperCount = slotNames.filter(function(pos) {
+            return gripperSlots[pos] && gripperSlots[pos].connected;
+        }).length;
+        if (slotNames.length === 0) {
+            connectedGripperCount = grippers.filter(function(g) { return g.connected !== false; }).length;
+        }
 
         var html = '';
         if (serviceDisconnected) {
@@ -384,6 +395,22 @@
                     '摄像头 ' + (idx + 1) + ' · ' + deviceTypeLabel(dev.type),
                     dev.name || '未返回设备名称',
                     'SN: ' + (dev.serial || '--')
+                );
+            });
+        }
+        html += '</div>';
+
+        html += '<div class="info-section-label">夹爪槽位</div><div class="info-device-list">';
+        if (slotNames.length === 0) {
+            html += '<div class="info-empty">未返回夹爪槽位</div>';
+        } else {
+            slotNames.forEach(function(pos) {
+                var gs = gripperSlots[pos] || {};
+                html += renderDeviceCard(
+                    gripperSlotLabel(pos),
+                    !!gs.connected,
+                    deviceTypeLabel(gs.type),
+                    gs.port ? ('端口: ' + gs.port) : ''
                 );
             });
         }
@@ -2608,6 +2635,11 @@
         } else {
             stopRpsCamera();
         }
+        if (pageName === 'teleop') {
+            initTeleopPage();
+        } else {
+            stopTeleop(false);
+        }
     };
 
     // ---- 电动夹爪控制页 ----
@@ -2700,6 +2732,413 @@
     function egActionLabel(a) {
         var m = { enable:'使能电机', disable:'失能电机', clear_error:'清除错误', halt:'急停', set_zero:'设置零点', find_zero:'回零', query_motor_id:'查询电机ID', query_position:'查询位置', query_speed:'查询速度', query_current:'查询电流', set_position:'位置控制', set_speed:'速度控制', set_current:'电流控制', set_mit:'MIT控制', set_acceleration:'设置加速度' };
         return m[a] || a;
+    }
+
+    // ---- 夹爪遥控页：手动夹爪位置映射到电动夹爪行程 ----
+    var teleopState = {
+        initialized: false,
+        running: false,
+        timer: null,
+        deviceTimer: null,
+        pollBusy: false,
+        commandBusy: false,
+        manualSlot: '',
+        electricSlot: '',
+        lastManualPosition: null,
+        lastTargetPosition: null,
+        lastCommandAt: 0,
+        logLines: []
+    };
+
+    function initTeleopPage() {
+        if (!teleopState.initialized) {
+            teleopState.initialized = true;
+            bindTeleopEvents();
+        }
+        refreshTeleopSelectors();
+        teleopTick(true);
+        if (!teleopState.deviceTimer) {
+            teleopState.deviceTimer = setInterval(function() {
+                if (currentPage !== 'teleop') return;
+                refreshTeleopSelectors();
+            }, 2000);
+        }
+    }
+
+    function bindTeleopEvents() {
+        var refreshBtn = document.getElementById('teleopRefreshBtn');
+        var enableBtn = document.getElementById('teleopEnableBtn');
+        var startBtn = document.getElementById('teleopStartBtn');
+        var stopBtn = document.getElementById('teleopStopBtn');
+        var haltBtn = document.getElementById('teleopHaltBtn');
+        var learnMinBtn = document.getElementById('teleopLearnMinBtn');
+        var learnMaxBtn = document.getElementById('teleopLearnMaxBtn');
+        var manualSelect = document.getElementById('teleopManualSelect');
+        var electricSelect = document.getElementById('teleopElectricSelect');
+        if (refreshBtn) refreshBtn.addEventListener('click', function() {
+            fetchDeviceInfo().then(function() {
+                refreshTeleopSelectors(true);
+                teleopTick(true);
+                showToast('遥控设备列表已刷新', 'success');
+            }).catch(function() {
+                showToast('刷新设备失败', 'error');
+            });
+        });
+        if (enableBtn) enableBtn.addEventListener('click', function() {
+            if (!syncTeleopSelectedSlots()) return;
+            sendTeleopElectricAction('enable', {}, false);
+        });
+        if (startBtn) startBtn.addEventListener('click', startTeleop);
+        if (stopBtn) stopBtn.addEventListener('click', function() { stopTeleop(true); });
+        if (haltBtn) haltBtn.addEventListener('click', function() {
+            if (syncTeleopSelectedSlots()) sendTeleopElectricAction('halt', {}, false);
+            stopTeleop(false);
+            setTeleopStatus('已急停', false);
+        });
+        if (learnMinBtn) learnMinBtn.addEventListener('click', function() { setTeleopCalibrationFromCurrent('min'); });
+        if (learnMaxBtn) learnMaxBtn.addEventListener('click', function() { setTeleopCalibrationFromCurrent('max'); });
+        if (manualSelect) manualSelect.addEventListener('change', function() {
+            teleopState.manualSlot = manualSelect.value;
+            teleopState.lastManualPosition = null;
+            teleopTick(true);
+        });
+        if (electricSelect) electricSelect.addEventListener('change', function() {
+            teleopState.electricSlot = electricSelect.value;
+            teleopState.lastTargetPosition = null;
+            teleopTick(true);
+        });
+    }
+
+    function getManualTeleopSlots() {
+        var gripperSlots = deviceInfo.gripperSlots || {};
+        var slots = [];
+        Object.keys(gripperSlots).forEach(function(slot) {
+            var info = gripperSlots[slot] || {};
+            if (info.connected && info.type !== 'electric') {
+                slots.push({ slot: slot, info: info });
+            }
+        });
+        return slots;
+    }
+
+    function getElectricTeleopSlots() {
+        var gripperSlots = deviceInfo.gripperSlots || {};
+        var slots = [];
+        Object.keys(gripperSlots).forEach(function(slot) {
+            var info = gripperSlots[slot] || {};
+            if (info.connected && info.type === 'electric') {
+                slots.push({ slot: slot, info: info });
+            }
+        });
+        return slots;
+    }
+
+    function teleopSlotText(item, index, typeText) {
+        var port = item.info && item.info.port ? ' - ' + item.info.port : '';
+        var serial = item.info && item.info.serial ? ' - ' + item.info.serial : '';
+        return typeText + ' ' + (index + 1) + port + serial;
+    }
+
+    function refreshTeleopSelectors(forceKeep) {
+        var manualSelect = document.getElementById('teleopManualSelect');
+        var electricSelect = document.getElementById('teleopElectricSelect');
+        var manualSlots = getManualTeleopSlots();
+        var electricSlots = getElectricTeleopSlots();
+        if (manualSelect) {
+            var oldManual = forceKeep ? manualSelect.value : (teleopState.manualSlot || manualSelect.value);
+            manualSelect.innerHTML = '';
+            if (manualSlots.length === 0) {
+                manualSelect.appendChild(new Option('未检测到手动夹爪', ''));
+            } else {
+                manualSlots.forEach(function(item, index) {
+                    manualSelect.appendChild(new Option(teleopSlotText(item, index, '手动夹爪'), item.slot));
+                });
+            }
+            var manualExists = manualSlots.some(function(item) { return item.slot === oldManual; });
+            manualSelect.value = manualExists ? oldManual : (manualSlots[0] ? manualSlots[0].slot : '');
+            teleopState.manualSlot = manualSelect.value;
+        }
+        if (electricSelect) {
+            var oldElectric = forceKeep ? electricSelect.value : (teleopState.electricSlot || electricSelect.value || getElectricGripperSlot());
+            electricSelect.innerHTML = '';
+            if (electricSlots.length === 0) {
+                electricSelect.appendChild(new Option('未检测到电动夹爪', ''));
+            } else {
+                electricSlots.forEach(function(item, index) {
+                    electricSelect.appendChild(new Option(teleopSlotText(item, index, '电动夹爪'), item.slot));
+                });
+            }
+            var electricExists = electricSlots.some(function(item) { return item.slot === oldElectric; });
+            electricSelect.value = electricExists ? oldElectric : (electricSlots[0] ? electricSlots[0].slot : '');
+            teleopState.electricSlot = electricSelect.value;
+        }
+        updateTeleopDeviceStatus(manualSlots.length, electricSlots.length);
+    }
+
+    function updateTeleopDeviceStatus(manualCount, electricCount) {
+        var text = manualCount + ' 个手动夹爪，' + electricCount + ' 个电动夹爪';
+        if (teleopState.running) text += '，正在同步';
+        setTeleopStatus(text, teleopState.running);
+    }
+
+    function syncTeleopSelectedSlots() {
+        var manualSelect = document.getElementById('teleopManualSelect');
+        var electricSelect = document.getElementById('teleopElectricSelect');
+        teleopState.manualSlot = manualSelect ? manualSelect.value : teleopState.manualSlot;
+        teleopState.electricSlot = electricSelect ? electricSelect.value : teleopState.electricSlot;
+        if (!teleopState.manualSlot) {
+            showToast('请先选择手动夹爪', 'error');
+            return false;
+        }
+        if (!teleopState.electricSlot) {
+            showToast('未检测到电动夹爪', 'error');
+            return false;
+        }
+        egCurrentSlot = teleopState.electricSlot;
+        return true;
+    }
+
+    function readTeleopConfig() {
+        function numberValue(id, fallback) {
+            var el = document.getElementById(id);
+            var v = el ? parseFloat(el.value) : NaN;
+            return isFinite(v) ? v : fallback;
+        }
+        var manualMin = numberValue('teleopManualMin', 0);
+        var manualMax = numberValue('teleopManualMax', 1);
+        var electricOpen = Math.max(0, Math.min(EG_MAX_POSITION_DEG, numberValue('teleopElectricOpen', 0)));
+        var electricClose = Math.max(0, Math.min(EG_MAX_POSITION_DEG, numberValue('teleopElectricClose', EG_MAX_POSITION_DEG)));
+        var intervalMs = Math.max(40, Math.min(500, numberValue('teleopIntervalInput', 80)));
+        var deadbandDeg = Math.max(0, Math.min(300, numberValue('teleopDeadbandInput', 20)));
+        var invert = !!(document.getElementById('teleopInvertToggle') && document.getElementById('teleopInvertToggle').checked);
+        return {
+            manualMin: manualMin,
+            manualMax: manualMax,
+            electricOpen: electricOpen,
+            electricClose: electricClose,
+            speed: clampSpd(numberValue('teleopSpeedInput', 3000)),
+            currentLimit: clampCur(numberValue('teleopCurrentInput', 4.0)),
+            intervalMs: intervalMs,
+            deadbandDeg: deadbandDeg,
+            invert: invert
+        };
+    }
+
+    function startTeleop() {
+        if (!syncTeleopSelectedSlots()) return;
+        var cfg = readTeleopConfig();
+        if (Math.abs(cfg.manualMax - cfg.manualMin) < 0.0001) {
+            showToast('手动最小和最大不能相同', 'error');
+            return;
+        }
+        teleopState.running = true;
+        teleopState.lastTargetPosition = null;
+        teleopState.lastCommandAt = 0;
+        setTeleopStatus('正在同步手动夹爪到电动夹爪', true);
+        appendTeleopLog('启动遥控：手动夹爪 -> 电动夹爪');
+        sendTeleopElectricAction('enable', {}, true);
+        if (teleopState.timer) clearInterval(teleopState.timer);
+        teleopState.timer = setInterval(function() { teleopTick(false); }, 40);
+        teleopTick(false);
+    }
+
+    function stopTeleop(sendStopCommand) {
+        var wasRunning = teleopState.running;
+        teleopState.running = false;
+        if (teleopState.timer) {
+            clearInterval(teleopState.timer);
+            teleopState.timer = null;
+        }
+        if (wasRunning && sendStopCommand && teleopState.electricSlot) {
+            sendTeleopElectricAction('stop_motion', {}, true);
+            appendTeleopLog('已停止遥控同步');
+        }
+        setTeleopStatus('遥控已停止', false);
+    }
+
+    function teleopTick(readOnly) {
+        if (teleopState.pollBusy) return;
+        if (!syncTeleopSelectedSlotsSilent()) {
+            updateTeleopReadout(null, null, null);
+            return;
+        }
+        teleopState.pollBusy = true;
+        var manualSlot = teleopState.manualSlot;
+        var electricSlot = teleopState.electricSlot;
+        Promise.all([
+            fetch(API_ALT + '/api/gripper/' + manualSlot).then(function(r) { return r.json(); }).catch(function() { return null; }),
+            fetch(API_ALT + '/api/electric-gripper/' + electricSlot).then(function(r) { return r.json(); }).catch(function() { return null; })
+        ]).then(function(results) {
+            var manualData = results[0];
+            var electricData = results[1];
+            if (!manualData || !manualData.has || manualData.connected === false) {
+                if (teleopState.running) setTeleopStatus('手动夹爪已断开，遥控暂停', false);
+                updateTeleopReadout(null, null, electricData);
+                return;
+            }
+            if (!electricData || !electricData.has || electricData.connected === false) {
+                if (teleopState.running) setTeleopStatus('电动夹爪已断开，遥控暂停', false);
+                updateTeleopReadout(manualData, null, electricData);
+                return;
+            }
+            var cfg = readTeleopConfig();
+            if (Math.abs(cfg.manualMax - cfg.manualMin) < 0.0001) {
+                setTeleopStatus('手动最小和最大不能相同，遥控暂停', false);
+                updateTeleopReadout(manualData, null, electricData);
+                return;
+            }
+            var mapping = mapTeleopPosition(manualData.position, cfg);
+            teleopState.lastManualPosition = manualData.position;
+            updateTeleopReadout(manualData, mapping, electricData);
+            if (!readOnly && teleopState.running) {
+                maybeSendTeleopTarget(mapping.target, cfg);
+            }
+        }).finally(function() {
+            teleopState.pollBusy = false;
+        });
+    }
+
+    function syncTeleopSelectedSlotsSilent() {
+        var manualSelect = document.getElementById('teleopManualSelect');
+        var electricSelect = document.getElementById('teleopElectricSelect');
+        teleopState.manualSlot = manualSelect ? manualSelect.value : teleopState.manualSlot;
+        teleopState.electricSlot = electricSelect ? electricSelect.value : teleopState.electricSlot;
+        if (teleopState.electricSlot) egCurrentSlot = teleopState.electricSlot;
+        return !!(teleopState.manualSlot && teleopState.electricSlot);
+    }
+
+    function mapTeleopPosition(manualPosition, cfg) {
+        var raw = isFinite(manualPosition) ? manualPosition : 0;
+        var pct = (raw - cfg.manualMin) / (cfg.manualMax - cfg.manualMin);
+        pct = Math.max(0, Math.min(1, pct));
+        if (cfg.invert) pct = 1 - pct;
+        var target = cfg.electricOpen + pct * (cfg.electricClose - cfg.electricOpen);
+        target = Math.max(0, Math.min(EG_MAX_POSITION_DEG, target));
+        return {
+            raw: raw,
+            pct: pct,
+            target: Math.round(target)
+        };
+    }
+
+    function maybeSendTeleopTarget(target, cfg) {
+        var now = Date.now();
+        var movedEnough = teleopState.lastTargetPosition === null || Math.abs(target - teleopState.lastTargetPosition) >= cfg.deadbandDeg;
+        var intervalReady = now - teleopState.lastCommandAt >= cfg.intervalMs;
+        if (!movedEnough || !intervalReady || teleopState.commandBusy) return;
+        teleopState.lastTargetPosition = target;
+        teleopState.lastCommandAt = now;
+        teleopState.commandBusy = true;
+        sendTeleopElectricAction('set_position', {
+            position: target,
+            speed: cfg.speed,
+            current_limit: cfg.currentLimit
+        }, true).finally(function() {
+            teleopState.commandBusy = false;
+        });
+    }
+
+    function sendTeleopElectricAction(action, params, silent) {
+        var slot = teleopState.electricSlot || getElectricGripperSlot();
+        if (!slot) {
+            if (!silent) showToast('未检测到电动夹爪', 'error');
+            return Promise.resolve({ success: false });
+        }
+        egCurrentSlot = slot;
+        var body = { action: action };
+        params = params || {};
+        for (var k in params) body[k] = params[k];
+        return fetch('/api/electric-gripper/' + slot + '/control', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function(r) { return r.json(); }).then(function(d) {
+            if (!silent) {
+                showToast(d.success ? egActionLabel(action) + ' - 已发送' : egActionLabel(action) + ' 失败: ' + (d.error || '未知错误'), d.success ? 'success' : 'error');
+            }
+            return d;
+        }).catch(function() {
+            if (!silent) showToast('电动夹爪通信失败', 'error');
+            return { success: false };
+        });
+    }
+
+    function setTeleopCalibrationFromCurrent(kind) {
+        function applyValue(value) {
+            var id = kind === 'min' ? 'teleopManualMin' : 'teleopManualMax';
+            var el = document.getElementById(id);
+            if (el) el.value = Number(value).toFixed(3);
+            appendTeleopLog((kind === 'min' ? '手动最小' : '手动最大') + ' 已标定为 ' + Number(value).toFixed(3));
+        }
+        if (teleopState.lastManualPosition !== null && isFinite(teleopState.lastManualPosition)) {
+            applyValue(teleopState.lastManualPosition);
+            teleopTick(true);
+            return;
+        }
+        if (!syncTeleopSelectedSlots()) return;
+        fetch(API_ALT + '/api/gripper/' + teleopState.manualSlot).then(function(r) { return r.json(); }).then(function(data) {
+            if (!data || !data.has || data.connected === false) {
+                showToast('当前手动夹爪无读数', 'error');
+                return;
+            }
+            teleopState.lastManualPosition = data.position;
+            applyValue(data.position);
+            teleopTick(true);
+        }).catch(function() {
+            showToast('读取手动夹爪失败', 'error');
+        });
+    }
+
+    function updateTeleopReadout(manualData, mapping, electricData) {
+        var manualPositionEl = document.getElementById('teleopManualPosition');
+        var manualPercentEl = document.getElementById('teleopManualPercent');
+        var targetEl = document.getElementById('teleopTargetPosition');
+        var electricPositionEl = document.getElementById('teleopElectricPosition');
+        var manualBar = document.getElementById('teleopManualBar');
+        var electricBar = document.getElementById('teleopElectricBar');
+        var manualTrack = document.getElementById('teleopManualTrackLabel');
+        var electricTrack = document.getElementById('teleopElectricTrackLabel');
+        if (manualData && mapping) {
+            var pctText = Math.round(mapping.pct * 100) + '%';
+            if (manualPositionEl) manualPositionEl.textContent = Number(mapping.raw).toFixed(3);
+            if (manualPercentEl) manualPercentEl.textContent = pctText;
+            if (targetEl) targetEl.textContent = mapping.target + '°';
+            if (manualBar) manualBar.style.width = (mapping.pct * 100) + '%';
+            if (electricBar) electricBar.style.width = Math.max(0, Math.min(100, mapping.target / EG_MAX_POSITION_DEG * 100)) + '%';
+            if (manualTrack) manualTrack.textContent = pctText;
+            if (electricTrack) electricTrack.textContent = mapping.target + '°';
+        } else {
+            if (manualPositionEl) manualPositionEl.textContent = '--';
+            if (manualPercentEl) manualPercentEl.textContent = '--';
+            if (targetEl) targetEl.textContent = '--';
+            if (manualBar) manualBar.style.width = '0%';
+            if (electricBar) electricBar.style.width = '0%';
+            if (manualTrack) manualTrack.textContent = '--';
+            if (electricTrack) electricTrack.textContent = '--';
+        }
+        if (electricData && electricData.has && typeof electricData.positionDeg === 'number') {
+            if (electricPositionEl) electricPositionEl.textContent = electricData.positionDeg.toFixed(1) + '°';
+        } else if (electricPositionEl) {
+            electricPositionEl.textContent = '--';
+        }
+    }
+
+    function setTeleopStatus(text, running) {
+        var statusEl = document.getElementById('teleopStatus');
+        var runEl = document.getElementById('teleopRunState');
+        if (statusEl) statusEl.textContent = text;
+        if (runEl) {
+            runEl.textContent = running ? '同步中' : '待机';
+            runEl.className = 'teleop-run-pill' + (running ? ' running' : '');
+        }
+    }
+
+    function appendTeleopLog(text) {
+        var time = new Date().toLocaleTimeString();
+        teleopState.logLines.unshift('[' + time + '] ' + text);
+        teleopState.logLines = teleopState.logLines.slice(0, 6);
+        var logEl = document.getElementById('teleopLog');
+        if (logEl) logEl.textContent = teleopState.logLines.join('\n');
     }
 
     // 位置滑条节流：拖动时立即发 CAN，但限制在约 20Hz，避免总线过载。
@@ -3275,7 +3714,7 @@
     function updateRpsGripperSlot() {
         var slot = getElectricGripperSlot();
         var el = document.getElementById('rpsGripperSlot');
-        if (el) el.textContent = slot ? (slot === 'left' ? '左夹爪' : '右夹爪') : '未检测';
+        if (el) el.textContent = slot ? gripperSlotLabel(slot) : '未检测';
         if (slot) egCurrentSlot = slot;
     }
 

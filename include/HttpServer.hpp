@@ -235,8 +235,8 @@ public:
     void recordGripper(const std::string& slot, float position, uint8_t button1, uint8_t button2, uint64_t timestampUs);
     void recordElectricGripper(const std::string& slot, float positionDeg, float velocity, float current,
                                float motorTemp, float mosTemp, uint8_t errorCode, uint64_t timestampUs);
-    void setUmiGripper(const std::string& slot, UmiGripper* mgr) { umiGrippers_[slot] = mgr; }
-    void setElectricGripper(const std::string& slot, ElectricGripper* gripper) { electricGrippers_[slot] = gripper; }
+    void setUmiGripper(const std::string& slot, UmiGripper* mgr) { umiGrippers_[slot] = mgr; gripperWebStates_[slot]; }
+    void setElectricGripper(const std::string& slot, ElectricGripper* gripper) { electricGrippers_[slot] = gripper; electricGripperWebStates_[slot]; }
     void updateElectricGripperData(const std::string& slot, const ElectricGripperFullState& state);
     ElectricGripper* getElectricGripper(const std::string& slot) const;
     void updateDeviceInfo(const std::string& name, int pid, int vid,

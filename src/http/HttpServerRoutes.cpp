@@ -961,7 +961,7 @@ void HttpServer::setupMultiCameraRoutes() {
             deviceManager_->attachDetectedGrippersToEmptySlots(false);
             json = deviceManager_->toJson();
         } else {
-            json = "{\"devices\":[],\"slots\":{\"left\":{\"type\":\"none\",\"connected\":false},\"right\":{\"type\":\"none\",\"connected\":false}}}";
+            json = "{\"devices\":[],\"slots\":{\"left\":{\"type\":\"none\",\"connected\":false},\"right\":{\"type\":\"none\",\"connected\":false},\"head\":{\"type\":\"none\",\"connected\":false}},\"grippers\":[],\"gripperSlots\":{\"left\":{\"type\":\"none\",\"connected\":false},\"right\":{\"type\":\"none\",\"connected\":false},\"extra\":{\"type\":\"none\",\"connected\":false}}}";
         }
         json::sendJson(res, json);
     });

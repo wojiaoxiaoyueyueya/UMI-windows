@@ -42,6 +42,7 @@
             <button class="nav-tab" data-page="control">夹爪控制</button>
             <button class="nav-tab" data-page="electric">电动夹爪控制</button>
             <button class="nav-tab" data-page="rps">剪刀石头布</button>
+            <button class="nav-tab" data-page="teleop">夹爪遥控</button>
         </div>
     </nav>
 
@@ -802,6 +803,150 @@
                         <span>状态</span>
                         <strong id="rpsRoundStatus">待机</strong>
                     </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Page: 夹爪遥控 -->
+    <div class="page" id="page-teleop" style="display:none">
+        <div class="teleop-layout">
+            <aside class="teleop-sidebar">
+                <div class="rps-card">
+                    <div class="rps-card-title">设备选择</div>
+                    <div class="eg-ctrl-field">
+                        <label>手动夹爪</label>
+                        <select class="eg-input" id="teleopManualSelect">
+                            <option value="">未检测到手动夹爪</option>
+                        </select>
+                    </div>
+                    <div class="eg-ctrl-field">
+                        <label>电动夹爪</label>
+                        <select class="eg-input" id="teleopElectricSelect">
+                            <option value="">未检测到电动夹爪</option>
+                        </select>
+                    </div>
+                    <div class="rps-btn-row">
+                        <button class="eg-btn eg-btn-outline" id="teleopRefreshBtn">刷新</button>
+                        <button class="eg-btn eg-btn-primary" id="teleopEnableBtn">使能</button>
+                    </div>
+                </div>
+
+                <div class="rps-card">
+                    <div class="rps-card-title">映射标定</div>
+                    <div class="teleop-two-col">
+                        <div class="eg-ctrl-field">
+                            <label>手动最小</label>
+                            <input type="number" id="teleopManualMin" value="0" step="0.001" class="eg-input">
+                        </div>
+                        <div class="eg-ctrl-field">
+                            <label>手动最大</label>
+                            <input type="number" id="teleopManualMax" value="1" step="0.001" class="eg-input">
+                        </div>
+                    </div>
+                    <div class="rps-btn-row">
+                        <button class="eg-btn eg-btn-outline" id="teleopLearnMinBtn">取当前最小</button>
+                        <button class="eg-btn eg-btn-outline" id="teleopLearnMaxBtn">取当前最大</button>
+                    </div>
+                    <div class="teleop-two-col">
+                        <div class="eg-ctrl-field">
+                            <label>电动张开</label>
+                            <input type="number" id="teleopElectricOpen" value="0" min="0" max="4500" step="1" class="eg-input">
+                        </div>
+                        <div class="eg-ctrl-field">
+                            <label>电动闭合</label>
+                            <input type="number" id="teleopElectricClose" value="4500" min="0" max="4500" step="1" class="eg-input">
+                        </div>
+                    </div>
+                    <label class="rps-toggle-line">
+                        <input type="checkbox" id="teleopInvertToggle">
+                        <span>反向映射</span>
+                    </label>
+                </div>
+
+                <div class="rps-card">
+                    <div class="rps-card-title">控制参数</div>
+                    <div class="teleop-two-col">
+                        <div class="eg-ctrl-field">
+                            <label>速度</label>
+                            <input type="number" id="teleopSpeedInput" value="3000" min="1" max="3276" step="1" class="eg-input">
+                        </div>
+                        <div class="eg-ctrl-field">
+                            <label>电流(A)</label>
+                            <input type="number" id="teleopCurrentInput" value="4.0" min="0.1" max="4.0" step="0.1" class="eg-input">
+                        </div>
+                    </div>
+                    <div class="teleop-two-col">
+                        <div class="eg-ctrl-field">
+                            <label>间隔(ms)</label>
+                            <input type="number" id="teleopIntervalInput" value="80" min="40" max="500" step="10" class="eg-input">
+                        </div>
+                        <div class="eg-ctrl-field">
+                            <label>死区(°)</label>
+                            <input type="number" id="teleopDeadbandInput" value="20" min="0" max="300" step="1" class="eg-input">
+                        </div>
+                    </div>
+                    <div class="rps-btn-row">
+                        <button class="eg-btn eg-btn-primary" id="teleopStartBtn">开始遥控</button>
+                        <button class="eg-btn eg-btn-outline" id="teleopStopBtn">停止</button>
+                    </div>
+                    <button class="eg-btn eg-btn-danger eg-btn-full" id="teleopHaltBtn">急停</button>
+                </div>
+            </aside>
+
+            <main class="teleop-main">
+                <section class="teleop-dashboard">
+                    <div>
+                        <div class="teleop-dash-title">遥控同步</div>
+                        <div class="teleop-dash-subtitle" id="teleopStatus">等待选择设备</div>
+                    </div>
+                    <div class="teleop-run-pill" id="teleopRunState">待机</div>
+                </section>
+
+                <section class="rps-readout teleop-readout">
+                    <div class="rps-readout-card">
+                        <span>手动位置</span>
+                        <strong id="teleopManualPosition">--</strong>
+                    </div>
+                    <div class="rps-readout-card">
+                        <span>闭合比例</span>
+                        <strong id="teleopManualPercent">--</strong>
+                    </div>
+                    <div class="rps-readout-card">
+                        <span>目标行程</span>
+                        <strong id="teleopTargetPosition">--</strong>
+                    </div>
+                    <div class="rps-readout-card">
+                        <span>电动反馈</span>
+                        <strong id="teleopElectricPosition">--</strong>
+                    </div>
+                </section>
+
+                <section class="teleop-panel">
+                    <div class="teleop-panel-title">实时映射</div>
+                    <div class="teleop-track">
+                        <div class="teleop-track-header">
+                            <span>手动夹爪闭合度</span>
+                            <strong id="teleopManualTrackLabel">--</strong>
+                        </div>
+                        <div class="eg-bar-wrap teleop-bar-wrap">
+                            <div class="eg-bar teleop-manual-bar" id="teleopManualBar"></div>
+                        </div>
+                    </div>
+                    <div class="teleop-track">
+                        <div class="teleop-track-header">
+                            <span>电动夹爪目标行程</span>
+                            <strong id="teleopElectricTrackLabel">--</strong>
+                        </div>
+                        <div class="eg-bar-wrap teleop-bar-wrap">
+                            <div class="eg-bar teleop-electric-bar" id="teleopElectricBar"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="teleop-panel">
+                    <div class="teleop-panel-title">联动状态</div>
+                    <div class="teleop-log" id="teleopLog">未启动遥控</div>
                 </section>
             </main>
         </div>
