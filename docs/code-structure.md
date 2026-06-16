@@ -12,7 +12,7 @@
 | `src/HikCamera.cpp` | 海康 MVS 相机封装，负责打开设备、取帧、像素转换、鱼眼矫正。 |
 | `src/OrbbecCamera.cpp` | Orbbec 相机封装，负责彩色、深度、红外、点云回调。 |
 | `src/UmiGripper.cpp` | UMI 手动夹爪串口通信、按钮、位置和 LED 控制。 |
-| `src/ElectricGripper.cpp` | GCAN 电动夹爪通信、位置/速度/电流控制和状态解析。 |
+| `src/ElectricGripper.cpp` | 电动夹爪通信，支持 GCAN USBCAN 和 ESP32-CAN 串口桥，负责位置/速度/电流控制和状态解析。 |
 | `src/SlamManager.cpp` | 可选 SLAM/位姿记录模块。 |
 | `src/http/HttpServer.cpp` | HTTP 服务生命周期、MJPEG 编码循环、实时状态更新。 |
 | `src/http/HttpServerRoutes.cpp` | REST API、静态页面、MJPEG 流、设备控制接口。 |
@@ -59,7 +59,7 @@
 | --- | --- |
 | `lib/hikvision/` | 海康 MVS SDK 头文件、库和运行 DLL。 |
 | `lib/orbbec/` | Orbbec SDK 头文件、库和运行 DLL。 |
-| `lib/gcan/` | GCAN USBCAN 头文件和 DLL。 |
+| `lib/gcan/` | GCAN USBCAN 头文件和 DLL；ESP32-CAN 方式不依赖这里的 DLL，但需要可用的 USB 串口驱动。 |
 | `lib/umi/` | UMI 夹爪驱动源码或兼容接口。 |
 
 ## 数据目录

@@ -62,6 +62,7 @@ python -m pip install -r requirements.txt
 - Orbbec：Orbbec SDK/Viewer/驱动。
 - UMI：USB 串口驱动。
 - GCAN：USBCAN 驱动。
+- ESP32-CAN：烧录 `can_transceiver` 固件，并安装对应 USB 串口驱动。
 
 7. 检查 SDK 目录：
 

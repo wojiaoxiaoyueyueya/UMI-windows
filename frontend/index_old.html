@@ -148,12 +148,12 @@
                                     <input type="range" id="egLeftSlider" min="0" max="4500" value="0" step="1" style="width:100%;accent-color:var(--primary)">
                                     <div style="display:flex;gap:8px;margin-top:6px">
                                         <div style="flex:1">
-                                            <label style="font-size:10px;color:var(--text-dim)">速度</label>
+                                            <label style="font-size:10px;color:var(--text-dim)">目标速度(rpm)</label>
                                             <input type="number" id="egLeftSpeed" value="3000" min="1" max="3276" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
                                         </div>
                                         <div style="flex:1">
                                             <label style="font-size:10px;color:var(--text-dim)">电流(A)</label>
-                                            <input type="number" id="egLeftCurrent" value="4.0" min="0.1" max="10" step="0.1" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                                            <input type="number" id="egLeftCurrent" value="1.2" min="0.1" step="0.1" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
                                         </div>
                                     </div>
                                 </div>
@@ -218,12 +218,12 @@
                                     <input type="range" id="egRightSlider" min="0" max="4500" value="0" step="1" style="width:100%;accent-color:var(--primary)">
                                     <div style="display:flex;gap:8px;margin-top:6px">
                                         <div style="flex:1">
-                                            <label style="font-size:10px;color:var(--text-dim)">速度</label>
+                                            <label style="font-size:10px;color:var(--text-dim)">目标速度(rpm)</label>
                                             <input type="number" id="egRightSpeed" value="3000" min="1" max="3276" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
                                         </div>
                                         <div style="flex:1">
                                             <label style="font-size:10px;color:var(--text-dim)">电流(A)</label>
-                                            <input type="number" id="egRightCurrent" value="4.0" min="0.1" max="10" step="0.1" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
+                                            <input type="number" id="egRightCurrent" value="1.2" min="0.1" step="0.1" style="width:100%;font-size:11px;padding:3px 6px;background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:4px">
                                         </div>
                                     </div>
                                 </div>
@@ -635,16 +635,16 @@
                         </div>
                         <div class="eg-pos-params">
                             <div class="eg-param-group">
-                                <label>速度 (rpm)</label>
+                                <label>目标速度 (rpm) <span class="eg-range-hint">1~3276</span></label>
                                 <input type="number" id="egSpeedInput" value="3000" min="1" max="3276" step="10" class="eg-input eg-input-sm">
                             </div>
                             <div class="eg-param-group">
                                 <label>电流限制 (A)</label>
-                                <input type="number" id="egCurrentInput" value="4.0" min="0.1" max="4.0" step="0.1" class="eg-input eg-input-sm">
+                                <input type="number" id="egCurrentInput" value="1.2" min="0.1" step="0.1" class="eg-input eg-input-sm">
                             </div>
                             <button class="eg-btn eg-btn-primary" id="egMoveBtn">移动</button>
                         </div>
-                        <div class="eg-warning">电流限制 ≤4A；0° 为最大打开，4500° 为最小捏合位置。</div>
+                        <div class="eg-warning">电流限制默认 1.2A，可按实验需要调整；0° 为最大打开，4500° 为最小捏合位置。</div>
                     </div>
                 </div>
 
@@ -656,9 +656,10 @@
                         <div class="eg-ctrl-body">
                             <div class="eg-speed-dir-label">
                                 <span class="eg-dir-open">闭合 ←</span>
-                                <span class="eg-dir-val" id="egSpeedValLabel">0</span>
+                                <span class="eg-dir-val" id="egSpeedValLabel">0 rpm</span>
                                 <span>→ 打开</span>
                             </div>
+                            <div class="eg-range-hint" style="text-align:center;margin:-2px 0 4px">持续速度 (rpm)，范围 -500~500</div>
                             <div class="eg-speed-bar-wrap">
                                 <div class="eg-speed-bar" id="egSpeedBar"></div>
                                 <div class="eg-speed-bar-center"></div>
@@ -678,8 +679,8 @@
                                 <button class="eg-btn eg-btn-speed-adj" data-delta="500">+500</button>
                             </div>
                             <div class="eg-ctrl-field">
-                                <label>电流限制 (A) <span class="eg-range-hint">max 4.0</span></label>
-                                <input type="number" id="egSpeedCurrentInput" value="1.0" min="0.1" max="4.0" step="0.1" class="eg-input">
+                                <label>电流限制 (A) <span class="eg-range-hint">默认 1.2</span></label>
+                                <input type="number" id="egSpeedCurrentInput" value="1.2" min="0.1" step="0.1" class="eg-input">
                             </div>
                             <div class="eg-ctrl-btns">
                                 <button class="eg-btn eg-btn-primary" id="egSpeedCtrlBtn">执行</button>
@@ -693,9 +694,10 @@
                         <div class="eg-card-title">电流控制</div>
                         <div class="eg-ctrl-body">
                             <div class="eg-ctrl-field">
-                                <label>目标电流 (A)</label>
-                                <input type="number" id="egTargetCurrentInput" value="0" min="-4" max="4" step="0.1" class="eg-input">
+                                <label>目标电流 (A) <span class="eg-range-hint">max ±0.4</span></label>
+                                <input type="number" id="egTargetCurrentInput" value="0.2" min="-0.4" max="0.4" step="0.05" class="eg-input">
                             </div>
+                            <div class="eg-warning">电流环控制默认 0.2A，最大 ±0.4A；执行时会自动使能并下发电流，避免夹爪闭合锁死。</div>
                             <div class="eg-ctrl-btns" style="margin-top:12px">
                                 <button class="eg-btn eg-btn-primary" id="egCurrentCtrlBtn">执行</button>
                             </div>
@@ -868,12 +870,12 @@
                     <div class="rps-card-title">控制参数</div>
                     <div class="teleop-two-col">
                         <div class="eg-ctrl-field">
-                            <label>速度</label>
+                            <label>目标速度(rpm) <span class="eg-range-hint">1~3276</span></label>
                             <input type="number" id="teleopSpeedInput" value="3000" min="1" max="3276" step="1" class="eg-input">
                         </div>
                         <div class="eg-ctrl-field">
-                            <label>电流(A)</label>
-                            <input type="number" id="teleopCurrentInput" value="4.0" min="0.1" max="4.0" step="0.1" class="eg-input">
+                            <label>电流(A) <span class="eg-range-hint">默认 1.2</span></label>
+                            <input type="number" id="teleopCurrentInput" value="1.2" min="0.1" step="0.1" class="eg-input">
                         </div>
                     </div>
                     <div class="teleop-two-col">

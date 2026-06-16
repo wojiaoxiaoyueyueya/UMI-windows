@@ -30,6 +30,18 @@
 #include "MvCameraControl.h"
 #endif
 
+namespace {
+bool isManualGripperVid(uint16_t vid) {
+    return vid == 0x0E01 || vid == 0x0E02;
+}
+
+bool isLikelyEsp32CanBridgeVid(uint16_t vid) {
+    // 0x303A: Espressif USB Serial/JTAG；0x1A86/0x10C4/0x0403/0x067B: 常见 USB-UART 桥。
+    // vid=0 表示系统没有提供 VID，也保留为低优先级候选。
+    return vid == 0 || vid == 0x303A || vid == 0x1A86 || vid == 0x10C4 || vid == 0x0403 || vid == 0x067B;
+}
+}
+
 // ---- 构造/析构 ----
 
 DeviceManager::DeviceManager(const Config& cfg) : cfg_(cfg) {
@@ -282,11 +294,7 @@ bool DeviceManager::refreshDetectedGrippers() {
         const auto& slot = kv.second;
         auto* electric = dynamic_cast<ElectricGripper*>(slot.gripper.get());
         if (slot.connected && slot.gripperType == "electric" && electric && electric->isConnected()) {
-            ElectricGripperFullState fullState;
-            electric->getFullState(fullState);
-            bool recentlyResponsive = fullState.hasData && fullState.timestamp > 0
-                && nowUs >= fullState.timestamp
-                && (nowUs - fullState.timestamp) <= 5000000ULL;
+            bool recentlyResponsive = electric->hasRecentMotorResponse(nowUs, 5000000ULL);
             if (!recentlyResponsive) continue;
 
             DetectedGripper dg;
@@ -340,6 +348,23 @@ bool DeviceManager::attachDetectedGrippersToEmptySlots(bool allowElectricScan) {
     }
     if (hasConnectedElectric) return changed;
 
+    std::set<std::string> usedPorts;
+    for (const auto& kv : gripperSlots_) {
+        if (kv.second.connected && kv.second.gripper) usedPorts.insert(kv.second.gripper->getPortName());
+    }
+    std::vector<std::string> esp32CanPorts;
+    for (const auto& info : portInfos) {
+        if (isManualGripperVid(info.vid)) continue;
+        if (usedPorts.count(info.portName)) continue;
+        if (isLikelyEsp32CanBridgeVid(info.vid)) esp32CanPorts.push_back(info.portName);
+    }
+    if (esp32CanPorts.empty()) {
+        for (const auto& port : UmiGripper::scanSerialPorts()) {
+            if (usedPorts.count(port)) continue;
+            esp32CanPorts.push_back(port);
+        }
+    }
+
     bool canAvailable = false;
     auto& canWrapper = ECanVciWrapper::sharedInstance();
     if (!allowElectricScan) return changed;
@@ -357,8 +382,6 @@ bool DeviceManager::attachDetectedGrippersToEmptySlots(bool allowElectricScan) {
             canWrapper.close();
         }
     }
-    if (!canAvailable) return changed;
-
     std::string electricSlot;
     for (const auto& slotName : {std::string("left"), std::string("right"), std::string("extra")}) {
         auto it = gripperSlots_.find(slotName);
@@ -367,20 +390,51 @@ bool DeviceManager::attachDetectedGrippersToEmptySlots(bool allowElectricScan) {
             break;
         }
     }
-    if (electricSlot.empty()) return changed;
+    if (electricSlot.empty()) {
+        if (canAvailable) canWrapper.close();
+        return changed;
+    }
 
-    auto gripper = std::make_unique<ElectricGripper>();
-    if (gripper->openCAN(&canWrapper, 0x15)) {
-        DetectedGripper dg;
-        dg.type = "electric";
-        dg.port = gripper->getPortName();
-        dg.connected = true;
-        detectedGrippers_.push_back(dg);
-        gripperSlots_[electricSlot].gripperType = "electric";
-        gripperSlots_[electricSlot].gripper = std::move(gripper);
-        gripperSlots_[electricSlot].connected = true;
-        fprintf(stderr, "[DeviceManager] 热插拔补挂 %s 夹爪槽: 电动夹爪 (CAN)\n", electricSlot.c_str());
-        changed = true;
+    bool electricAttached = false;
+    if (canAvailable) {
+        auto gripper = std::make_unique<ElectricGripper>();
+        if (gripper->openCAN(&canWrapper, 0x15)) {
+            DetectedGripper dg;
+            dg.type = "electric";
+            dg.port = gripper->getPortName();
+            dg.connected = true;
+            detectedGrippers_.push_back(dg);
+            gripperSlots_[electricSlot].gripperType = "electric";
+            gripperSlots_[electricSlot].gripper = std::move(gripper);
+            gripperSlots_[electricSlot].connected = true;
+            fprintf(stderr, "[DeviceManager] 热插拔补挂 %s 夹爪槽: 电动夹爪 (GCAN CAN盒)\n", electricSlot.c_str());
+            changed = true;
+            electricAttached = true;
+        } else {
+            canWrapper.close();
+            canAvailable = false;
+        }
+    }
+
+    if (!electricAttached) {
+        for (const auto& port : esp32CanPorts) {
+            auto gripper = std::make_unique<ElectricGripper>();
+            if (!gripper->openSerialBridge(port, 115200, 0x15)) continue;
+
+            DetectedGripper dg;
+            dg.type = "electric";
+            dg.port = gripper->getPortName();
+            dg.connected = true;
+            detectedGrippers_.push_back(dg);
+            gripperSlots_[electricSlot].gripperType = "electric";
+            gripperSlots_[electricSlot].gripper = std::move(gripper);
+            gripperSlots_[electricSlot].connected = true;
+            fprintf(stderr, "[DeviceManager] 热插拔补挂 %s 夹爪槽: 电动夹爪 (ESP32-CAN 串口桥 %s)\n",
+                    electricSlot.c_str(), port.c_str());
+            changed = true;
+            electricAttached = true;
+            break;
+        }
     }
     return changed;
 }
@@ -801,6 +855,7 @@ void DeviceManager::detectAndAssignGrippers() {
         std::string side;  // "left" or "right"
     };
     std::vector<GripperCandidate> candidates;
+    std::set<std::string> reservedEsp32CanPorts;
 
     for (auto& info : portInfos) {
         if (info.vid == 0x0E01 || info.vid == 0x0E02) {
@@ -814,6 +869,10 @@ void DeviceManager::detectAndAssignGrippers() {
             candidates.push_back(gc);
             fprintf(stderr, "[DeviceManager] 检测到手动夹爪: %s (VID=0x%04X PID=0x%04X -> %s手)\n",
                 info.portName.c_str(), info.vid, info.pid, gc.side.c_str());
+        } else if (isLikelyEsp32CanBridgeVid(info.vid)) {
+            reservedEsp32CanPorts.insert(info.portName);
+            fprintf(stderr, "[DeviceManager] 检测到 ESP32-CAN 候选串口: %s (VID=0x%04X PID=0x%04X)\n",
+                info.portName.c_str(), info.vid, info.pid);
         }
     }
 
@@ -822,6 +881,10 @@ void DeviceManager::detectAndAssignGrippers() {
         fprintf(stderr, "[DeviceManager] SetupAPI 未检测到夹爪 VID，回退到串口扫描...\n");
         auto ports = UmiGripper::scanSerialPorts();
         for (auto& port : ports) {
+            if (reservedEsp32CanPorts.count(port) > 0) {
+                fprintf(stderr, "[DeviceManager] 跳过 ESP32-CAN 候选串口的手动夹爪探测: %s\n", port.c_str());
+                continue;
+            }
             auto gripper = std::make_unique<UmiGripper>();
             if (gripper->open(port)) {
                 GripperCandidate gc;
@@ -837,7 +900,12 @@ void DeviceManager::detectAndAssignGrippers() {
 
     // 尝试电动夹爪（通过 CAN 适配器检测）
     std::set<std::string> usedPorts;
-    for (auto& c : candidates) usedPorts.insert(c.port);
+    std::vector<std::string> esp32CanPorts;
+    for (const auto& info : portInfos) {
+        if (isManualGripperVid(info.vid)) continue;
+        if (usedPorts.count(info.portName)) continue;
+        if (isLikelyEsp32CanBridgeVid(info.vid)) esp32CanPorts.push_back(info.portName);
+    }
 
     // 尝试加载 CAN SDK 并检测电动夹爪
     fprintf(stderr, "[DeviceManager] 尝试检测 CAN 电动夹爪...\n");
@@ -907,6 +975,13 @@ void DeviceManager::detectAndAssignGrippers() {
         }
     }
 
+    usedPorts.clear();
+    for (const auto& kv : gripperSlots_) {
+        if (kv.second.connected && kv.second.gripper) {
+            usedPorts.insert(kv.second.gripper->getPortName());
+        }
+    }
+
     // 电动夹爪：优先沿用 left/right 空槽；两个手动夹爪都已连接时，放入 extra 额外槽。
     std::string electricSlot;
     for (const auto& slotName : {std::string("left"), std::string("right"), std::string("extra")}) {
@@ -928,6 +1003,33 @@ void DeviceManager::detectAndAssignGrippers() {
             gripperSlots_[electricSlot].gripper = std::move(gripper);
             gripperSlots_[electricSlot].connected = true;
             fprintf(stderr, "[DeviceManager] %s 夹爪槽: 电动夹爪 (CAN)\n", electricSlot.c_str());
+        } else {
+            canWrapper.close();
+            canAvailable = false;
+        }
+    }
+    if (!electricSlot.empty() && !gripperSlots_[electricSlot].connected) {
+        if (esp32CanPorts.empty()) {
+            for (const auto& port : UmiGripper::scanSerialPorts()) {
+                if (usedPorts.count(port)) continue;
+                esp32CanPorts.push_back(port);
+            }
+        }
+        for (const auto& port : esp32CanPorts) {
+            auto gripper = std::make_unique<ElectricGripper>();
+            if (!gripper->openSerialBridge(port, 115200, 0x15)) continue;
+
+            DetectedGripper dg;
+            dg.type = "electric";
+            dg.port = gripper->getPortName();
+            dg.connected = true;
+            detectedGrippers_.push_back(dg);
+            gripperSlots_[electricSlot].gripperType = "electric";
+            gripperSlots_[electricSlot].gripper = std::move(gripper);
+            gripperSlots_[electricSlot].connected = true;
+            fprintf(stderr, "[DeviceManager] %s 夹爪槽: 电动夹爪 (ESP32-CAN 串口桥 %s)\n",
+                    electricSlot.c_str(), port.c_str());
+            break;
         }
     }
 }
@@ -1001,12 +1103,8 @@ std::string DeviceManager::toJson() const {
                 gripperConnected = !gripperPort.empty() && detectedGripperPorts.count(gripperPort) > 0;
             } else if (kv.second.gripperType == "electric") {
                 auto* electric = dynamic_cast<ElectricGripper*>(kv.second.gripper.get());
-                ElectricGripperFullState fullState;
-                if (electric) electric->getFullState(fullState);
                 gripperConnected = electric && electric->isConnected()
-                    && fullState.hasData && fullState.timestamp > 0
-                    && nowUs >= fullState.timestamp
-                    && (nowUs - fullState.timestamp) <= 5000000ULL;
+                    && electric->hasRecentMotorResponse(nowUs, 5000000ULL);
             }
         }
         json += "\"" + kv.first + "\":{\"type\":\"" + kv.second.gripperType +

@@ -1117,6 +1117,10 @@ void HttpServer::setupMultiCameraRoutes() {
         }
         auto& gs = it->second;
         std::lock_guard<std::mutex> lock(gs.mutex);
+        const char* linkType = "GCAN USBCAN";
+        auto git = electricGrippers_.find(slot);
+        ElectricGripper* gripper = (git != electricGrippers_.end()) ? git->second : nullptr;
+        if (gripper && gripper->isSerialBridge()) linkType = "ESP32-CAN";
         char rawHex[48];
         rawHex[0] = '\0';
         for (int i = 0; i < gs.rawFrameLen && i < 8; i++)
@@ -1124,6 +1128,7 @@ void HttpServer::setupMultiCameraRoutes() {
         char json[1200];
         snprintf(json, sizeof(json),
             "{\"has\":%s,\"connected\":%s,\"slot\":\"%s\","
+            "\"linkType\":\"%s\","
             "\"positionDeg\":%.4f,\"velocity\":%.4f,\"current\":%.4f,"
             "\"motorTemp\":%.1f,\"mosTemp\":%.1f,"
             "\"errorCode\":%d,\"motorEnabled\":%s,\"timestamp\":%llu,"
@@ -1131,6 +1136,7 @@ void HttpServer::setupMultiCameraRoutes() {
             gs.hasData ? "true" : "false",
             gs.connected ? "true" : "false",
             slot.c_str(),
+            linkType,
             gs.positionDeg, gs.velocity, gs.current,
             gs.motorTemp, gs.mosTemp,
             (int)gs.errorCode,
@@ -1192,7 +1198,13 @@ void HttpServer::setupMultiCameraRoutes() {
             ok = gripper->sendMITControl(kp, kd, pos, spd, torque);
         } else if (action == "set_current") {
             float current = json::extractFloat(body, "current");
+            // 电流环对电机使能状态更敏感，不能完全依赖上一帧反馈里的 motorEnabled。
+            // 每次执行都先发一次当前位置保持的使能帧，留出模式切换时间，再下发电流环命令。
+            gripper->enableMotor();
+            std::this_thread::sleep_for(std::chrono::milliseconds(220));
             ok = gripper->sendCurrentControl(current);
+            std::this_thread::sleep_for(std::chrono::milliseconds(30));
+            ok = gripper->sendCurrentControl(current) || ok;
         } else if (action == "set_zero") {
             ok = gripper->setZero();
         } else if (action == "find_zero") {
@@ -1221,7 +1233,7 @@ void HttpServer::setupMultiCameraRoutes() {
             float speed = json::extractFloat(body, "speed");
             float currentLimit = json::extractFloat(body, "current_limit");
             if (speed <= 0) speed = 10.0f;
-            if (currentLimit <= 0) currentLimit = 5.0f;
+            if (currentLimit <= 0) currentLimit = ElectricGripper::DEFAULT_CURRENT_LIMIT;
             ok = gripper->findLimit(speed, currentLimit);
         } else if (action == "stop_speed") {
             ok = gripper->stopSpeed();

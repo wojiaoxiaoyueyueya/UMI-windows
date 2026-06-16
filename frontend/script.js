@@ -1188,7 +1188,7 @@
         var backendSlot = gripperSlotMap[displayPos] || displayPos;
         var p = getInlineEgPrefix(displayPos);
         var spd = Math.max(1, Math.min(3276, parseFloat(document.getElementById(p + 'Speed').value) || 10));
-        var cur = Math.max(0.1, Math.min(4.0, parseFloat(document.getElementById(p + 'Current').value) || 1.0));
+        var cur = clampCur(parseFloat(document.getElementById(p + 'Current').value) || EG_DEFAULT_CURRENT_A);
         // 同步控制页速度/电流
         var cpSpeed = document.getElementById('egSpeedInput');
         if (cpSpeed) cpSpeed.value = spd;
@@ -2669,7 +2669,7 @@
             var connEl = document.getElementById('egConnStatus');
             if (connEl) connEl.textContent = data.connected ? 'CAN 已连接' : '未连接';
             var canEl = document.getElementById('egCanStatus');
-            if (canEl) canEl.textContent = data.connected ? 'GCAN USBCAN 已连接' : '未连接';
+            if (canEl) canEl.textContent = data.connected ? ((data.linkType || 'CAN') + ' 已连接') : '未连接';
             var connDot = document.getElementById('egConnDot');
             if (connDot) connDot.className = 'eg-conn-dot' + (data.connected ? ' online' : '');
             var idEl = document.getElementById('egMotorIdVal');
@@ -2711,7 +2711,14 @@
         }).catch(function(){});
     }
 
-    function clampCur(v) { return Math.max(0.1, Math.min(4.0, v)); }
+    var EG_DEFAULT_CURRENT_A = 1.2;
+    var EG_DEFAULT_CURRENT_CONTROL_A = 0.2;
+    var EG_MAX_CURRENT_CONTROL_A = 0.4;
+    function clampCur(v) {
+        if (!isFinite(v)) return EG_DEFAULT_CURRENT_A;
+        return Math.max(0.1, v);
+    }
+    function clampCurrentControl(v) { return Math.max(-EG_MAX_CURRENT_CONTROL_A, Math.min(EG_MAX_CURRENT_CONTROL_A, v)); }
     function clampSpd(v) { return Math.max(1, Math.min(3276, v)); }
 
     function sendEgCommand(action, params, silent) {
@@ -2917,7 +2924,7 @@
             electricOpen: electricOpen,
             electricClose: electricClose,
             speed: clampSpd(numberValue('teleopSpeedInput', 3000)),
-            currentLimit: clampCur(numberValue('teleopCurrentInput', 4.0)),
+            currentLimit: clampCur(numberValue('teleopCurrentInput', EG_DEFAULT_CURRENT_A)),
             intervalMs: intervalMs,
             deadbandDeg: deadbandDeg,
             invert: invert
@@ -3160,7 +3167,7 @@
             if (now - egSliderLastSent >= EG_SLIDER_MIN_INTERVAL) {
                 egSliderLastSent = now;
                 var spd = clampSpd(parseFloat(document.getElementById('egSpeedInput').value) || 10);
-                var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || 1.0);
+                var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || EG_DEFAULT_CURRENT_A);
                 sendEgCommand('set_position', { position: sliderVal, speed: spd, current_limit: cur }, true);
                 egSliderThrottlePending = false;
             } else if (!egSliderThrottlePending) {
@@ -3168,7 +3175,7 @@
                 var capturedVal = sliderVal;
                 setTimeout(function() {
                     var spd = clampSpd(parseFloat(document.getElementById('egSpeedInput').value) || 10);
-                    var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || 1.0);
+                    var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || EG_DEFAULT_CURRENT_A);
                     sendEgCommand('set_position', { position: capturedVal, speed: spd, current_limit: cur }, true);
                     egSliderThrottlePending = false;
                     egSliderLastSent = Date.now();
@@ -3182,8 +3189,7 @@
     if (egMoveBtn) egMoveBtn.addEventListener('click', function() {
         var pos = parseFloat(document.getElementById('egPositionSlider').value);
         var spd = clampSpd(parseFloat(document.getElementById('egSpeedInput').value) || 10);
-        var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || 1.0);
-        if (cur > 4.0) { showToast('电流限制最大 4A，已自动限制', 'error'); cur = 4.0; }
+        var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || EG_DEFAULT_CURRENT_A);
         sendEgCommand('set_position', { position: pos, speed: spd, current_limit: cur });
     });
 
@@ -3230,7 +3236,7 @@
             var barEl = document.getElementById('egPositionBar');
             if (barEl) barEl.style.width = barPct + '%';
             var spd = clampSpd(parseFloat(document.getElementById('egSpeedInput').value) || 10);
-            var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || 1.0);
+            var cur = clampCur(parseFloat(document.getElementById('egCurrentInput').value) || EG_DEFAULT_CURRENT_A);
             sendEgCommand('set_position', { position: pos, speed: spd, current_limit: cur });
         });
     }
@@ -3271,7 +3277,7 @@
         var v = parseInt(val) || 0;
         var barEl = document.getElementById('egSpeedBar');
         var valEl = document.getElementById('egSpeedValLabel');
-        if (valEl) valEl.textContent = v;
+        if (valEl) valEl.textContent = v + ' rpm';
         if (barEl) {
             var pct = Math.abs(v) / 500 * 50;
             if (v >= 0) {
@@ -3294,27 +3300,30 @@
         egSpeedAdjBtns[j].addEventListener('click', function() {
             var v = parseInt(this.getAttribute('data-delta'));
             if (egSpeedSlider) { egSpeedSlider.value = v; egUpdateSpeedUI(v); }
-            var cur = clampCur(parseFloat(document.getElementById('egSpeedCurrentInput').value) || 1.0);
+            var cur = clampCur(parseFloat(document.getElementById('egSpeedCurrentInput').value) || EG_DEFAULT_CURRENT_A);
             sendEgCommand('set_speed', { speed: v, current_limit: cur });
         });
     }
     var egSpeedCtrlBtn = document.getElementById('egSpeedCtrlBtn');
     if (egSpeedCtrlBtn) egSpeedCtrlBtn.addEventListener('click', function() {
         var spd = parseFloat(document.getElementById('egTargetSpeedInput').value) || 0;
-        var cur = clampCur(parseFloat(document.getElementById('egSpeedCurrentInput').value) || 1.0);
+        var cur = clampCur(parseFloat(document.getElementById('egSpeedCurrentInput').value) || EG_DEFAULT_CURRENT_A);
         sendEgCommand('set_speed', { speed: spd, current_limit: cur });
     });
     var egSpeedStopBtn = document.getElementById('egSpeedStopBtn');
     if (egSpeedStopBtn) egSpeedStopBtn.addEventListener('click', function() {
         if (egSpeedSlider) { egSpeedSlider.value = 0; egUpdateSpeedUI(0); }
-        sendEgCommand('set_speed', { speed: 0, current_limit: 1.0 });
+        sendEgCommand('set_speed', { speed: 0, current_limit: EG_DEFAULT_CURRENT_A });
     });
 
     // 电流控制。
     var egCurrentCtrlBtn = document.getElementById('egCurrentCtrlBtn');
     if (egCurrentCtrlBtn) egCurrentCtrlBtn.addEventListener('click', function() {
-        var cur = parseFloat(document.getElementById('egTargetCurrentInput').value) || 0;
-        if (Math.abs(cur) > 4) { showToast('电流限制最大 ±4A', 'error'); return; }
+        var rawCur = parseFloat(document.getElementById('egTargetCurrentInput').value) || EG_DEFAULT_CURRENT_CONTROL_A;
+        if (Math.abs(rawCur) > EG_MAX_CURRENT_CONTROL_A) {
+            showToast('电流环目标电流最大 ±0.4A，已自动限制', 'warning');
+        }
+        var cur = clampCurrentControl(rawCur);
         sendEgCommand('set_current', { current: cur });
     });
 
@@ -3652,7 +3661,7 @@
         sendRpsGripperAction('set_position', {
             position: position,
             speed: 3000,
-            current_limit: 4.0
+            current_limit: EG_DEFAULT_CURRENT_A
         }, silent);
     }
 

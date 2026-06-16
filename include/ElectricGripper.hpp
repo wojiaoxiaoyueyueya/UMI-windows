@@ -1,5 +1,7 @@
-// ElectricGripper.hpp - 电动夹爪驱动（CAN总线版本）
-// 使用广成科技 GCAN USBCAN 盒 + CANMIT 协议通信
+// ElectricGripper.hpp - 电动夹爪驱动
+// 支持两种链路：
+// 1. 广成科技 GCAN USBCAN 盒直接发送 CAN 帧；
+// 2. ESP32-S3 + CAN 收发器，通过串口命令转发原始 CAN 帧。
 
 #pragma once
 
@@ -48,6 +50,9 @@ public:
     // CAN 专用打开方式：通过已初始化的 CAN 适配器连接电机。
     bool openCAN(ECanVciWrapper* can, uint32_t motorId = 1);
 
+    // ESP32 串口转 CAN 打开方式：主程序仍生成 CAN 帧，ESP32 负责转发到 CAN 总线。
+    bool openSerialBridge(const std::string& port, int baudRate = 115200, uint32_t motorId = 0x15);
+
     // 电机基础控制：使能、失能、清错和急停。
     void enableMotor();
     void disableMotor();
@@ -93,24 +98,45 @@ public:
 
     ECanVciWrapper* getCanWrapper() const { return can_; }
     uint32_t getMotorId() const { return motorId_; }
+    bool isSerialBridge() const { return usingSerialBridge_; }
+    // 判断最近是否收到过电机侧 CAN 回包。串口桥接器在线不代表电机在线，
+    // 因此电动夹爪检测必须以 query_id 或状态反馈的真实回包为准。
+    bool hasRecentMotorResponse(uint64_t nowUs, uint64_t maxAgeUs) const;
+    bool verifyMotorConnection(int timeoutMs = 3000);
 
-    // 安全默认值：实测标定后用于常规位置控制的速度和电流上限。
+    // 安全默认值：实测标定后用于常规位置控制的速度和默认电流。
     static constexpr float DEFAULT_SPEED_RPM = 200.0f;
-    static constexpr float DEFAULT_CURRENT_LIMIT = 4.0f;
+    static constexpr float DEFAULT_CURRENT_LIMIT = 1.2f;
+    static constexpr float DEFAULT_CURRENT_CONTROL_A = 0.2f;
+    static constexpr float MAX_CURRENT_CONTROL_A = 0.4f;
 
 private:
     void pollLoop();
     bool sendCANFrame(uint32_t id, const uint8_t* data, uint8_t len);
     bool sendConfigFrame(const uint8_t* data, uint8_t len);
     void parseFeedback(ECAN_CAN_OBJ& obj);
+    bool configureSerialBridge(int baudRate);
+    bool hasSerialBridgeHandle() const;
+    bool writeSerialBridgeLine(const std::string& line);
+    bool waitForSerialBridgeReady(int timeoutMs);
+    bool waitForSerialBridgeMotorResponse(int timeoutMs);
+    void pollSerialBridge();
+    void parseSerialBridgeLine(const std::string& line);
+    void markSerialBridgeAlive();
+    void markMotorResponse(uint32_t responseId, bool updateMotorId, const char* source);
 
     ECanVciWrapper* can_ = nullptr;
     bool ownsCan_ = false;
     uint32_t motorId_ = 0x01;
+    bool usingSerialBridge_ = false;
+    HANDLE serialBridge_ = nullptr;
+    std::mutex serialBridgeMutex_;
+    std::string serialBridgeRxLine_;
 
     std::atomic<bool> connected_{false};
     std::atomic<bool> running_{false};
     std::thread pollThread_;
+    std::atomic<uint64_t> lastMotorResponseUs_{0};
     mutable std::mutex stateMutex_;
     GripperState state_;
     ElectricGripperFullState fullState_;

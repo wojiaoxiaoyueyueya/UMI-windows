@@ -131,6 +131,7 @@ python -m pip install -r requirements.txt</div>
                         <li>Orbbec：安装 Orbbec SDK/Viewer/驱动。</li>
                         <li>UMI：插入后确认 Windows 设备管理器能看到 COM 口。</li>
                         <li>GCAN：安装 USBCAN 驱动，确认 CAN 线、电源和终端电阻。</li>
+                        <li>ESP32-CAN：烧录 <span class="inline-code">can_transceiver</span> 固件，通过 USB 串口桥接 CAN 总线。</li>
                         <li>IMX335：作为 UVC 摄像头使用，先用 Windows 相机 App 测试。</li>
                     </ul>
 
@@ -141,6 +142,7 @@ lib/orbbec/include
 lib/orbbec/lib/win64/OrbbecSDK.dll
 lib/gcan/ECanVci64.dll
 lib/gcan/CHUSBDLL64.dll</div>
+                    <div class="callout">电动夹爪支持 GCAN USBCAN 盒，也支持 ESP32-S3 + CAN 模块串口桥接。ESP32-CAN 需要能返回 <span class="inline-code">can_transceiver</span> / <span class="inline-code">CAN ready</span>，并且电机能响应 <span class="inline-code">query_id</span>，程序才会判定为在线。</div>
                     <div class="callout">夹爪槽位为 <span class="inline-code">left</span>、<span class="inline-code">right</span>、<span class="inline-code">extra</span>。两个 UMI 手动夹爪都在线时，CAN 电动夹爪会挂载到 <span class="inline-code">extra</span> 额外槽。</div>
                 </div>
             </section>
@@ -186,6 +188,9 @@ cmake --build build --config Release</div>
                     <ul>
                         <li>电动夹爪控制、剪刀石头布、夹爪遥控会自动查找任意槽位中的电动夹爪。</li>
                         <li>两个手动夹爪都连接时，电动夹爪会显示为 <span class="inline-code">extra</span> 额外夹爪。</li>
+                        <li>位置控制的目标速度单位为 <span class="inline-code">rpm</span>，范围 <span class="inline-code">1~3276</span>；电流限制默认 <span class="inline-code">1.2A</span>，可按实验需要手动调整。</li>
+                        <li>速度控制也是 <span class="inline-code">rpm</span>，但属于持续转速控制，页面保守限制为 <span class="inline-code">-500~500 rpm</span>。</li>
+                        <li>电流环控制默认 <span class="inline-code">0.2A</span>，内部最大限制 <span class="inline-code">±0.4A</span>；点击执行时会自动使能并下发电流环命令。</li>
                         <li>夹爪遥控页面可以选择任意手动夹爪作为输入，将捏合位置实时映射到电动夹爪 <span class="inline-code">0°~4500°</span> 行程。</li>
                         <li>如果遥控方向相反，勾选“反向映射”；如果范围不准，使用“取当前最小/取当前最大”重新标定。</li>
                     </ul>
@@ -267,7 +272,7 @@ lib/</div>
                     <h3>右上角能看到设备，左侧没有开关</h3>
                     <p>右上角显示检测列表，左侧显示已挂载的采集槽位。点击“重新扫描设备”，必要时先关闭旧预览流。</p>
                     <h3>两个手动夹爪在线时识别不到电动夹爪</h3>
-                    <p>新版会把第三个 CAN 电动夹爪挂到 <span class="inline-code">extra</span> 额外槽。重新编译并重启服务后，点击“重新扫描设备”，右上角设备信息的“夹爪槽位”应显示“额外夹爪 · 电动夹爪”。</p>
+                    <p>新版会把第三个 CAN 电动夹爪挂到 <span class="inline-code">extra</span> 额外槽。重新编译并重启服务后，点击“重新扫描设备”，右上角设备信息的“夹爪槽位”应显示“额外夹爪 · 电动夹爪”。如果使用 ESP32-CAN，请确认串口没有被其他串口助手占用，并确认电机有 <span class="inline-code">query_id</span> 回包。</p>
                     <h3>三路海康卡顿</h3>
                     <p>降低 <span class="inline-code">camera.maxWidth</span>、<span class="inline-code">camera.maxHeight</span> 或 <span class="inline-code">camera.fps</span>。三路 USB 相机不建议满分辨率满帧率预览。</p>
                     <h3>转换失败</h3>

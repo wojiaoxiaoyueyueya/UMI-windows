@@ -6,6 +6,9 @@
 #include <cstring>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
+#include <sstream>
+#include <vector>
 
 namespace {
 // MIT 参数范围
@@ -23,6 +26,27 @@ constexpr float CLAW_SAFE_TRAVEL_RAD = 101.164f;  // 安全行程(弧度)
 
 // CAN 配置帧 ID：协议约定 0x7FF 用于广播配置类命令。
 constexpr uint32_t CAN_CONFIG_ID = 0x7FF;
+
+uint64_t nowMicros() {
+    return (uint64_t)std::chrono::duration_cast<std::chrono::microseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+bool parseHexByte(const std::string& text, uint8_t& out) {
+    char* end = nullptr;
+    long value = std::strtol(text.c_str(), &end, 16);
+    if (end == text.c_str() || *end != '\0' || value < 0 || value > 255) return false;
+    out = static_cast<uint8_t>(value);
+    return true;
+}
+
+bool parseHexId(const std::string& text, uint32_t& out) {
+    char* end = nullptr;
+    unsigned long value = std::strtoul(text.c_str(), &end, 16);
+    if (end == text.c_str() || *end != '\0' || value > 0x7FF) return false;
+    out = static_cast<uint32_t>(value);
+    return true;
+}
 }
 
 // ---- 构造/析构 ----
@@ -63,23 +87,104 @@ bool ElectricGripper::open(const std::string& port, int baudRate) {
         can.close();
         return false;
     }
-    // 使用固定的电机 ID 0x15
-    openCAN(&can, 0x15);
+    // 使用固定的电机 ID 0x15。只有收到电机侧真实回包时才认为打开成功。
+    if (!openCAN(&can, 0x15)) {
+        can.close();
+        return false;
+    }
     return true;
 }
 
 bool ElectricGripper::openCAN(ECanVciWrapper* can, uint32_t motorId) {
+    close();
+    usingSerialBridge_ = false;
     can_ = can;
     motorId_ = motorId;
+    lastMotorResponseUs_.store(0);
     connected_ = true;
     state_.connected = true;
     fullState_.connected = true;
     running_ = true;
     pollThread_ = std::thread(&ElectricGripper::pollLoop, this);
     portName_ = "CAN:" + std::to_string(motorId);
-    fprintf(stderr, "[电动夹爪] 已连接, motorId=0x%03X\n", motorId);
 
     std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    if (!verifyMotorConnection(3000)) {
+        fprintf(stderr, "[电动夹爪] CAN 适配器已打开，但没有收到电机 query_id 回包，请检查电机供电、CANH/CANL、共地、终端电阻和电机ID\n");
+        close();
+        return false;
+    }
+
+    fprintf(stderr, "[电动夹爪] 已连接, motorId=0x%03X\n", motorId_);
+    return true;
+}
+
+bool ElectricGripper::openSerialBridge(const std::string& port, int baudRate, uint32_t motorId) {
+    close();
+
+    std::string winPort = "\\\\.\\" + port;
+    serialBridge_ = CreateFileA(winPort.c_str(), GENERIC_READ | GENERIC_WRITE,
+                                0, NULL, OPEN_EXISTING, 0, NULL);
+    if (serialBridge_ == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "[电动夹爪] 无法打开 ESP32-CAN 串口 %s (error=%lu)\n",
+                port.c_str(), GetLastError());
+        serialBridge_ = nullptr;
+        return false;
+    }
+
+    if (!configureSerialBridge(baudRate)) {
+        fprintf(stderr, "[电动夹爪] ESP32-CAN 串口配置失败: %s\n", port.c_str());
+        CloseHandle(serialBridge_);
+        serialBridge_ = nullptr;
+        return false;
+    }
+
+    usingSerialBridge_ = true;
+    motorId_ = motorId;
+    lastMotorResponseUs_.store(0);
+    portName_ = "ESP32-CAN:" + port;
+
+    PurgeComm(serialBridge_, PURGE_RXCLEAR | PURGE_TXCLEAR | PURGE_RXABORT | PURGE_TXABORT);
+    ClearCommError(serialBridge_, NULL, NULL);
+
+    // ESP32-S3 打开串口后可能自动复位，留一点时间让固件打印启动信息并进入命令循环。
+    Sleep(1200);
+    writeSerialBridgeLine("diag off");
+    // 平台需要读取 [RX] 日志来判断电机是否真的回包，因此接入平台时必须打开 rxlog。
+    // 固件默认关闭 rxlog 是为了手动调试不刷屏，平台端会按行解析，不影响使用。
+    writeSerialBridgeLine("rxlog on");
+    {
+        char idCmd[32];
+        snprintf(idCmd, sizeof(idCmd), "id %X", (unsigned int)motorId_);
+        writeSerialBridgeLine(idCmd);
+    }
+    writeSerialBridgeLine("status");
+
+    if (!waitForSerialBridgeReady(2500)) {
+        fprintf(stderr, "[电动夹爪] %s 没有识别为 can_transceiver 串口桥接器\n", port.c_str());
+        CloseHandle(serialBridge_);
+        serialBridge_ = nullptr;
+        usingSerialBridge_ = false;
+        return false;
+    }
+
+    if (!waitForSerialBridgeMotorResponse(3500)) {
+        fprintf(stderr, "[电动夹爪] ESP32-CAN 串口桥接器已识别，但没有收到电机 query_id 回包: %s\n", port.c_str());
+        fprintf(stderr, "[电动夹爪] 请检查夹爪供电、CANH/CANL、GND共地、120欧终端电阻，以及 ESP32 到 CAN 模块的 TX/RX 接线\n");
+        CloseHandle(serialBridge_);
+        serialBridge_ = nullptr;
+        usingSerialBridge_ = false;
+        return false;
+    }
+
+    connected_ = true;
+    state_.connected = true;
+    fullState_.connected = true;
+
+    running_ = true;
+    pollThread_ = std::thread(&ElectricGripper::pollLoop, this);
+    fprintf(stderr, "[电动夹爪] 已连接 ESP32-CAN 串口桥接器: %s motorId=0x%03X\n",
+            port.c_str(), motorId_);
     return true;
 }
 
@@ -90,6 +195,13 @@ void ElectricGripper::close() {
     fullState_.connected = false;
     if (pollThread_.joinable()) pollThread_.join();
     can_ = nullptr;
+    if (hasSerialBridgeHandle()) {
+        CloseHandle(serialBridge_);
+        serialBridge_ = nullptr;
+    }
+    usingSerialBridge_ = false;
+    serialBridgeRxLine_.clear();
+    lastMotorResponseUs_.store(0);
 }
 
 bool ElectricGripper::isConnected() const { return connected_; }
@@ -117,9 +229,64 @@ void ElectricGripper::getFullState(ElectricGripperFullState& out) const {
     out = fullState_;
 }
 
+bool ElectricGripper::hasRecentMotorResponse(uint64_t nowUs, uint64_t maxAgeUs) const {
+    uint64_t last = lastMotorResponseUs_.load();
+    return last > 0 && nowUs >= last && (nowUs - last) <= maxAgeUs;
+}
+
+bool ElectricGripper::verifyMotorConnection(int timeoutMs) {
+    if (!connected_ || usingSerialBridge_) return false;
+
+    uint64_t startUs = nowMicros();
+    lastMotorResponseUs_.store(0);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    auto nextQuery = std::chrono::steady_clock::now();
+    int queryRound = 0;
+
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto now = std::chrono::steady_clock::now();
+        if (now >= nextQuery) {
+            queryMotorId();
+            // 如果某些电机固件不响应广播查 ID，也用目标 ID 查询一次位置；
+            // 只要收到任意电机反馈帧，就认为电机侧 CAN 总线已经连通。
+            if ((queryRound % 2) == 1) queryPosition();
+            queryRound++;
+            nextQuery = now + std::chrono::milliseconds(350);
+        }
+
+        uint64_t last = lastMotorResponseUs_.load();
+        if (last >= startUs) return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    }
+
+    return false;
+}
+
 // ---- CAN 发送 ----
 
 bool ElectricGripper::sendCANFrame(uint32_t id, const uint8_t* data, uint8_t len) {
+    if (usingSerialBridge_) {
+        if (!hasSerialBridgeHandle() || !connected_) {
+            fprintf(stderr, "[电动夹爪] ESP32-CAN 发送失败: serial=%p connected=%d\n",
+                    (void*)serialBridge_, connected_.load());
+            return false;
+        }
+        if (len > 8) len = 8;
+
+        char line[128];
+        int offset = snprintf(line, sizeof(line), "raw %03X", (unsigned int)(id & 0x7FF));
+        for (uint8_t i = 0; i < len && offset > 0 && offset < (int)sizeof(line); ++i) {
+            offset += snprintf(line + offset, sizeof(line) - offset, " %02X", data[i]);
+        }
+        bool ok = writeSerialBridgeLine(line);
+        if (ok) {
+            markSerialBridgeAlive();
+        } else {
+            fprintf(stderr, "[电动夹爪] ESP32-CAN raw 发送失败: %s\n", line);
+        }
+        return ok;
+    }
+
     if (!can_ || !connected_) {
         fprintf(stderr, "[电动夹爪] sendCANFrame 失败: can_=%p connected=%d\n",
                 (void*)can_, connected_.load());
@@ -207,7 +374,7 @@ bool ElectricGripper::sendPositionControl(float positionDeg, float speedRpm, flo
     uint16_t speedCode = (uint16_t)(speedRpm * 10.0f);
     if (speedCode > 0x7FFF) speedCode = 0x7FFF;
 
-    // 电流编码：uint12，单位为 A*10。
+    // 电流编码：uint12，单位为 A*10。位置控制只做非负保护，具体电流由用户按实验需要输入。
     if (currentLimit < 0) currentLimit = 0;
     uint16_t currentCode = (uint16_t)(currentLimit * 10.0f);
     if (currentCode > 0xFFF) currentCode = 0xFFF;
@@ -247,6 +414,7 @@ bool ElectricGripper::sendSpeedControl(float speedRpm, float currentLimit) {
     uint32_t speedBits;
     memcpy(&speedBits, &speed, 4);
 
+    if (currentLimit < 0) currentLimit = 0;
     uint16_t currentCode = (uint16_t)(currentLimit * 10.0f);
 
     data[0] = (0x02 << 5) | (reserveState << 2) | returnType;
@@ -269,7 +437,7 @@ bool ElectricGripper::findLimit(float speedRpm, float currentLimit) {
 
 // 停止电机（速度=0）
 bool ElectricGripper::stopSpeed() {
-    return sendSpeedControl(0.0f, 5.0f);
+    return sendSpeedControl(0.0f, DEFAULT_CURRENT_LIMIT);
 }
 
 // ---- MIT 力位混控 (模式 0x00) ----
@@ -315,6 +483,8 @@ bool ElectricGripper::sendMITControl(float kp, float kd, float positionRad, floa
 
 bool ElectricGripper::sendCurrentControl(float currentA) {
     uint8_t data[3] = {};
+    if (currentA > MAX_CURRENT_CONTROL_A) currentA = MAX_CURRENT_CONTROL_A;
+    if (currentA < -MAX_CURRENT_CONTROL_A) currentA = -MAX_CURRENT_CONTROL_A;
     int16_t currentCode = (int16_t)(currentA * 100.0f);
     uint8_t reserveState = 0; // 0=current control
     uint8_t returnType = 1;
@@ -413,18 +583,288 @@ bool ElectricGripper::findMinLimit() {
 }
 
 bool ElectricGripper::sendPresetPosition(float positionDeg) {
-    // 使用固定速度 25rpm, 电流限制 5A
-    return sendPositionControl(positionDeg, 25.0f, 5.0f);
+    // 使用低速预设动作，电流限制沿用安全默认值。
+    return sendPositionControl(positionDeg, 25.0f, DEFAULT_CURRENT_LIMIT);
+}
+
+// ---- ESP32 串口转 CAN 桥接 ----
+
+bool ElectricGripper::hasSerialBridgeHandle() const {
+    return serialBridge_ != nullptr && serialBridge_ != INVALID_HANDLE_VALUE;
+}
+
+bool ElectricGripper::configureSerialBridge(int baudRate) {
+    if (!hasSerialBridgeHandle()) return false;
+
+    DCB dcb;
+    memset(&dcb, 0, sizeof(dcb));
+    dcb.DCBlength = sizeof(dcb);
+
+    char dcbStr[64];
+    snprintf(dcbStr, sizeof(dcbStr), "baud=%d parity=N data=8 stop=1", baudRate);
+    if (!BuildCommDCBA(dcbStr, &dcb)) return false;
+
+    dcb.fOutxCtsFlow = FALSE;
+    dcb.fOutxDsrFlow = FALSE;
+    dcb.fDtrControl = DTR_CONTROL_ENABLE;
+    dcb.fDsrSensitivity = FALSE;
+    dcb.fOutX = FALSE;
+    dcb.fInX = FALSE;
+    dcb.fRtsControl = RTS_CONTROL_ENABLE;
+    dcb.fAbortOnError = FALSE;
+
+    if (!SetCommState(serialBridge_, &dcb)) return false;
+
+    COMMTIMEOUTS timeouts;
+    timeouts.ReadIntervalTimeout = MAXDWORD;
+    timeouts.ReadTotalTimeoutMultiplier = 0;
+    timeouts.ReadTotalTimeoutConstant = 20;
+    timeouts.WriteTotalTimeoutMultiplier = 0;
+    timeouts.WriteTotalTimeoutConstant = 200;
+    SetCommTimeouts(serialBridge_, &timeouts);
+    SetupComm(serialBridge_, 4096, 4096);
+    return true;
+}
+
+bool ElectricGripper::writeSerialBridgeLine(const std::string& line) {
+    if (!hasSerialBridgeHandle()) return false;
+    std::lock_guard<std::mutex> lock(serialBridgeMutex_);
+
+    std::string payload = line;
+    payload += "\r\n";
+
+    DWORD written = 0;
+    if (!WriteFile(serialBridge_, payload.data(), (DWORD)payload.size(), &written, NULL)) {
+        return false;
+    }
+    FlushFileBuffers(serialBridge_);
+    return written == payload.size();
+}
+
+bool ElectricGripper::waitForSerialBridgeReady(int timeoutMs) {
+    if (!hasSerialBridgeHandle()) return false;
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    std::string text;
+    bool ready = false;
+    char buf[256];
+    while (std::chrono::steady_clock::now() < deadline) {
+        DWORD n = 0;
+        if (ReadFile(serialBridge_, buf, sizeof(buf) - 1, &n, NULL) && n > 0) {
+            buf[n] = '\0';
+            text.append(buf, n);
+            if (text.find("can_transceiver") != std::string::npos ||
+                text.find("CAN ready") != std::string::npos ||
+                text.find("[CAN]") != std::string::npos ||
+                text.find("[CMD] status") != std::string::npos ||
+                text.find("rxlog off") != std::string::npos) {
+                ready = true;
+            }
+
+            size_t start = 0;
+            while (true) {
+                size_t pos = text.find_first_of("\r\n", start);
+                if (pos == std::string::npos) break;
+                if (pos > start) parseSerialBridgeLine(text.substr(start, pos - start));
+                start = pos + 1;
+            }
+            if (start > 0) text.erase(0, start);
+
+            if (ready) return true;
+        } else {
+            Sleep(20);
+        }
+    }
+    return false;
+}
+
+bool ElectricGripper::waitForSerialBridgeMotorResponse(int timeoutMs) {
+    if (!hasSerialBridgeHandle()) return false;
+
+    uint64_t startUs = nowMicros();
+    lastMotorResponseUs_.store(0);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+    auto nextQuery = std::chrono::steady_clock::now();
+
+    std::string text;
+    char buf[256];
+    while (std::chrono::steady_clock::now() < deadline) {
+        auto now = std::chrono::steady_clock::now();
+        if (now >= nextQuery) {
+            // 优先使用固件内置 query_id 命令；再补一帧 raw，兼容早期固件只实现 raw/tx 的情况。
+            writeSerialBridgeLine("query_id");
+            writeSerialBridgeLine("raw 7FF FF FF 00 82");
+            nextQuery = now + std::chrono::milliseconds(350);
+        }
+
+        DWORD n = 0;
+        if (ReadFile(serialBridge_, buf, sizeof(buf) - 1, &n, NULL) && n > 0) {
+            buf[n] = '\0';
+            text.append(buf, n);
+
+            size_t start = 0;
+            while (true) {
+                size_t pos = text.find_first_of("\r\n", start);
+                if (pos == std::string::npos) break;
+                if (pos > start) parseSerialBridgeLine(text.substr(start, pos - start));
+                start = pos + 1;
+            }
+            if (start > 0) text.erase(0, start);
+
+            uint64_t last = lastMotorResponseUs_.load();
+            if (last >= startUs) return true;
+        } else {
+            Sleep(20);
+        }
+    }
+
+    return false;
+}
+
+void ElectricGripper::markSerialBridgeAlive() {
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    // 这里只表示 ESP32 串口桥接器仍在线，不代表电机 CAN 总线已连通。
+    // 电机是否在线由 markMotorResponse()/lastMotorResponseUs_ 单独判断。
+    fullState_.connected = true;
+    state_.connected = true;
+}
+
+void ElectricGripper::markMotorResponse(uint32_t responseId, bool updateMotorId, const char* source) {
+    auto now = nowMicros();
+    if (updateMotorId && responseId >= 0x01 && responseId <= 0x7FE && responseId != motorId_) {
+        motorId_ = responseId;
+        if (usingSerialBridge_) {
+            auto colon = portName_.find(':');
+            if (colon != std::string::npos) portName_ = "ESP32-CAN:" + portName_.substr(colon + 1);
+        } else {
+            portName_ = "CAN:" + std::to_string(motorId_);
+        }
+        fprintf(stderr, "[电动夹爪] %s 确认电机ID: 0x%03X\n", source ? source : "回包", motorId_);
+    }
+
+    lastMotorResponseUs_.store(now);
+    std::lock_guard<std::mutex> lock(stateMutex_);
+    fullState_.connected = true;
+    fullState_.hasData = true;
+    fullState_.timestamp = now;
+    state_.connected = true;
+    state_.hasData = true;
+    state_.timestamp = now;
+}
+
+void ElectricGripper::parseSerialBridgeLine(const std::string& line) {
+    if (line.empty()) return;
+
+    if (line.find("[TX]") != std::string::npos ||
+        line.find("[CMD]") != std::string::npos ||
+        line.find("[CAN]") != std::string::npos ||
+        line.find("CAN ready") != std::string::npos) {
+        markSerialBridgeAlive();
+    }
+
+    auto rxPos = line.find("[RX]");
+    if (rxPos == std::string::npos) return;
+
+    auto idPos = line.find("ID=0x", rxPos);
+    auto dlcPos = line.find("DLC=", rxPos);
+    auto dataPos = line.find("DATA=", rxPos);
+    if (idPos == std::string::npos || dlcPos == std::string::npos || dataPos == std::string::npos) return;
+
+    uint32_t id = 0;
+    if (!parseHexId(line.substr(idPos + 5, 3), id)) return;
+
+    int dlc = atoi(line.c_str() + dlcPos + 4);
+    if (dlc < 0) dlc = 0;
+    if (dlc > 8) dlc = 8;
+
+    ECAN_CAN_OBJ obj = {};
+    obj.ID = id;
+    obj.DataLen = (BYTE)dlc;
+
+    std::istringstream iss(line.substr(dataPos + 5));
+    std::string token;
+    int idx = 0;
+    while (idx < dlc && iss >> token) {
+        uint8_t value = 0;
+        if (!parseHexByte(token, value)) break;
+        obj.Data[idx++] = value;
+    }
+    obj.DataLen = (BYTE)idx;
+    if (idx >= 2) {
+        if (obj.ID == CAN_CONFIG_ID && obj.DataLen >= 5 &&
+            obj.Data[0] == 0xFF && obj.Data[1] == 0xFF && obj.Data[2] == 0x01 && obj.Data[3] != 0x80) {
+            uint16_t detectedId = ((uint16_t)obj.Data[3] << 8) | obj.Data[4];
+            if (detectedId >= 0x01 && detectedId <= 0x7FE) {
+                markMotorResponse(detectedId, true, "ESP32-CAN query_id 回包");
+            }
+        } else {
+            if (obj.ID >= 0x01 && obj.ID <= 0x7FE && obj.ID != motorId_) {
+                motorId_ = obj.ID;
+                fprintf(stderr, "[电动夹爪] ESP32-CAN 从反馈学习到电机ID: 0x%03X\n", motorId_);
+            }
+            parseFeedback(obj);
+        }
+    }
+}
+
+void ElectricGripper::pollSerialBridge() {
+    char buf[128];
+    int readFailCount = 0;
+    while (running_) {
+        if (!hasSerialBridgeHandle()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
+
+        DWORD n = 0;
+        BOOL readOk = ReadFile(serialBridge_, buf, sizeof(buf), &n, NULL);
+        if (readOk && n > 0) {
+            readFailCount = 0;
+            for (DWORD i = 0; i < n; ++i) {
+                char ch = buf[i];
+                if (ch == '\r' || ch == '\n') {
+                    if (!serialBridgeRxLine_.empty()) {
+                        parseSerialBridgeLine(serialBridgeRxLine_);
+                        serialBridgeRxLine_.clear();
+                    }
+                } else if (serialBridgeRxLine_.size() < 512) {
+                    serialBridgeRxLine_.push_back(ch);
+                } else {
+                    serialBridgeRxLine_.clear();
+                }
+            }
+        } else if (!readOk) {
+            readFailCount++;
+            if (readFailCount >= 20) {
+                fprintf(stderr, "[电动夹爪] ESP32-CAN 串口桥接器已断开: %s\n", portName_.c_str());
+                connected_ = false;
+                state_.connected = false;
+                fullState_.connected = false;
+                return;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
 }
 
 // ---- 反馈帧解析 ----
 
 void ElectricGripper::parseFeedback(ECAN_CAN_OBJ& obj) {
+    if (obj.DataLen < 1) return;
+
     uint8_t returnType = (obj.Data[0] >> 5) & 0x07;
     uint8_t errorMsg = (obj.Data[0] & 0x1F) << 3;
 
-    auto now = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    // 只把协议内可解析的反馈帧视为“电机真实在线”。这样可以避免短帧、噪声帧或其他 CAN 设备
+    // 误触发 lastMotorResponseUs_，导致前端把电动夹爪显示成已连接。
+    if ((returnType == 1 || returnType == 2 || returnType == 3) && obj.DataLen < 8) return;
+    if (returnType == 5 && obj.DataLen < 6) return;
+    if (returnType != 1 && returnType != 2 && returnType != 3 && returnType != 5) return;
+
+    auto now = nowMicros();
+    lastMotorResponseUs_.store(now);
 
     std::lock_guard<std::mutex> lock(stateMutex_);
 
@@ -499,14 +939,23 @@ void ElectricGripper::parseFeedback(ECAN_CAN_OBJ& obj) {
     }
 
     fullState_.errorCode = errorMsg;
+    fullState_.connected = true;
     fullState_.hasData = true;
     fullState_.timestamp = now;
     fullState_.motorEnabled = (returnType > 0);
+    state_.connected = true;
+    state_.hasData = true;
+    state_.timestamp = now;
 }
 
 // ---- 轮询线程 ----
 
 void ElectricGripper::pollLoop() {
+    if (usingSerialBridge_) {
+        pollSerialBridge();
+        return;
+    }
+
     ECAN_CAN_OBJ recvBuf[10];
     int noDataCount = 0;
 
@@ -526,10 +975,8 @@ void ElectricGripper::pollLoop() {
                     && recvBuf[i].Data[2] == 0x01 && recvBuf[i].Data[3] != 0x80) {
                     uint16_t detectedId = ((uint16_t)recvBuf[i].Data[3] << 8) | recvBuf[i].Data[4];
                     fprintf(stderr, "[电动夹爪] 查询到电机ID: 0x%03X\n", detectedId);
-                    if (detectedId != motorId_ && detectedId >= 0x01 && detectedId <= 0x7FE) {
-                        motorId_ = detectedId;
-                        portName_ = "CAN:" + std::to_string(detectedId);
-                        fprintf(stderr, "[电动夹爪] 已自动更新 motorId 为 0x%03X\n", detectedId);
+                    if (detectedId >= 0x01 && detectedId <= 0x7FE) {
+                        markMotorResponse(detectedId, true, "GCAN query_id 回包");
                     }
                 }
             } else if (recvBuf[i].ID != motorId_ && recvBuf[i].ID >= 0x01 && recvBuf[i].ID <= 0x7FE && recvBuf[i].DataLen >= 2) {

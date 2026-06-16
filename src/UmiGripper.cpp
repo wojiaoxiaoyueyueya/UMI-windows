@@ -17,6 +17,7 @@ static const GUID GUID_DEVINTERFACE_COMPORT = \
 #include <string>
 #include <set>
 #include <algorithm>
+#include <cmath>
 
 namespace {
 constexpr int kDefaultBaudRate = 115200;
@@ -53,80 +54,158 @@ bool isValidTail(uint8_t t) { return t == kTailLeft || t == kTailRight; }
 uint8_t dataHeadForSide(const std::string& side) {
     return (side == "right") ? kLedDataHeadRight : kLedDataHeadLeft;
 }
+
+bool isPlausibleUmiFrame(const uint8_t* frame) {
+    if (!frame) return false;
+    if (frame[0] != kPacketHead || !isValidTail(frame[kResponsePacketSize - 1])) return false;
+
+    float position = 0.0f;
+    memcpy(&position, frame + 1, sizeof(position));
+    if (!std::isfinite(position)) return false;
+
+    // 手动夹爪位置是浮点数，正常范围很小；这里放宽到 ±1000，
+    // 只用于排除 ASCII 日志、启动信息等被误当成夹爪帧的情况。
+    if (position < -1000.0f || position > 1000.0f) return false;
+
+    // 两个按键字节正常为 0/1。这里放宽到低 4 位，兼容固件以后把按键扩展为状态位。
+    if (frame[5] > 0x0F || frame[6] > 0x0F) return false;
+    return true;
+}
+
+bool findUmiFrameInBuffer(const uint8_t* data, DWORD len, uint8_t outFrame[kResponsePacketSize]) {
+    if (!data || !outFrame || len < kResponsePacketSize) return false;
+    for (DWORD i = 0; i + kResponsePacketSize <= len; ++i) {
+        if (isPlausibleUmiFrame(data + i)) {
+            memcpy(outFrame, data + i, kResponsePacketSize);
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string extractComPortFromFriendlyName(const std::string& friendly) {
+    auto comPos = friendly.find("(COM");
+    if (comPos == std::string::npos) return "";
+
+    auto endPos = friendly.find(')', comPos);
+    if (endPos == std::string::npos) return "";
+
+    return friendly.substr(comPos + 1, endPos - comPos - 1);
+}
+
+void parseVidPidFromHardwareId(const std::string& hwIdStr, uint16_t& vid, uint16_t& pid) {
+    auto vidPos = hwIdStr.find("VID_");
+    auto pidPos = hwIdStr.find("PID_");
+    if (vidPos != std::string::npos) {
+        unsigned int v = 0;
+        sscanf(hwIdStr.c_str() + vidPos + 4, "%x", &v);
+        vid = (uint16_t)v;
+    }
+    if (pidPos != std::string::npos) {
+        unsigned int p = 0;
+        sscanf(hwIdStr.c_str() + pidPos + 4, "%x", &p);
+        pid = (uint16_t)p;
+    }
+}
+
+void addComPortInfo(std::vector<ComPortVidInfo>& result,
+                    std::set<std::string>& seenPorts,
+                    const std::string& portName,
+                    uint16_t vid,
+                    uint16_t pid,
+                    const char* source) {
+    if (portName.empty() || seenPorts.count(portName) > 0) return;
+
+    ComPortVidInfo info;
+    info.portName = portName;
+    info.vid = vid;
+    info.pid = pid;
+    result.push_back(info);
+    seenPorts.insert(portName);
+
+    fprintf(stderr, "[UmiGripper] COM port: %s  VID=0x%04X  PID=0x%04X  source=%s\n",
+        info.portName.c_str(), info.vid, info.pid, source ? source : "unknown");
+}
 } // namespace
 
 // ---- 通过 SetupAPI 按 USB VID 检测左右手 ----
 
 std::vector<ComPortVidInfo> UmiGripper::enumerateComPortsWithVid() {
     std::vector<ComPortVidInfo> result;
+    std::set<std::string> seenPorts;
 
     HDEVINFO hDevInfo = SetupDiGetClassDevs(&GUID_DEVINTERFACE_COMPORT, NULL, NULL,
         DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
-    if (hDevInfo == INVALID_HANDLE_VALUE) return result;
+    if (hDevInfo != INVALID_HANDLE_VALUE) {
+        SP_DEVICE_INTERFACE_DATA ifcData = {};
+        ifcData.cbSize = sizeof(ifcData);
 
-    SP_DEVICE_INTERFACE_DATA ifcData = {};
-    ifcData.cbSize = sizeof(ifcData);
+        for (DWORD i = 0; SetupDiEnumDeviceInterfaces(hDevInfo, NULL, &GUID_DEVINTERFACE_COMPORT, i, &ifcData); i++) {
+            // 第一次调用只获取缓冲区大小，随后再读取属性内容。
+            DWORD reqSize = 0;
+            SetupDiGetDeviceInterfaceDetailA(hDevInfo, &ifcData, NULL, 0, &reqSize, NULL);
 
-    for (DWORD i = 0; SetupDiEnumDeviceInterfaces(hDevInfo, NULL, &GUID_DEVINTERFACE_COMPORT, i, &ifcData); i++) {
-        // 第一次调用只获取缓冲区大小，随后再读取属性内容。
-        DWORD reqSize = 0;
-        SetupDiGetDeviceInterfaceDetailA(hDevInfo, &ifcData, NULL, 0, &reqSize, NULL);
+            SP_DEVINFO_DATA devData = {};
+            devData.cbSize = sizeof(devData);
 
-        SP_DEVINFO_DATA devData = {};
-        devData.cbSize = sizeof(devData);
+            std::vector<uint8_t> buf(std::max(reqSize, (DWORD)sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A)));
+            auto* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_A*>(buf.data());
+            detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
 
-        std::vector<uint8_t> buf(std::max(reqSize, (DWORD)sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A)));
-        auto* detail = reinterpret_cast<SP_DEVICE_INTERFACE_DETAIL_DATA_A*>(buf.data());
-        detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA_A);
+            if (!SetupDiGetDeviceInterfaceDetailA(hDevInfo, &ifcData, detail, (DWORD)buf.size(), NULL, &devData))
+                continue;
 
-        if (!SetupDiGetDeviceInterfaceDetailA(hDevInfo, &ifcData, detail, (DWORD)buf.size(), NULL, &devData))
-            continue;
+            CHAR hwId[512] = {};
+            if (!SetupDiGetDeviceRegistryPropertyA(hDevInfo, &devData, SPDRP_HARDWAREID,
+                NULL, (PBYTE)hwId, sizeof(hwId), NULL))
+                continue;
 
-        // 读取硬件 ID，从中解析 VID/PID。
-        CHAR hwId[512] = {};
-        if (!SetupDiGetDeviceRegistryPropertyA(hDevInfo, &devData, SPDRP_HARDWAREID,
-            NULL, (PBYTE)hwId, sizeof(hwId), NULL))
-            continue;
+            uint16_t vid = 0, pid = 0;
+            parseVidPidFromHardwareId(std::string(hwId), vid, pid);
 
-        std::string hwIdStr(hwId);
-        uint16_t vid = 0, pid = 0;
-        auto vidPos = hwIdStr.find("VID_");
-        auto pidPos = hwIdStr.find("PID_");
-        if (vidPos != std::string::npos) {
-            unsigned int v = 0;
-            sscanf(hwIdStr.c_str() + vidPos + 4, "%x", &v);
-            vid = (uint16_t)v;
-        }
-        if (pidPos != std::string::npos) {
-            unsigned int p = 0;
-            sscanf(hwIdStr.c_str() + pidPos + 4, "%x", &p);
-            pid = (uint16_t)p;
+            CHAR friendly[256] = {};
+            if (!SetupDiGetDeviceRegistryPropertyA(hDevInfo, &devData, SPDRP_FRIENDLYNAME,
+                NULL, (PBYTE)friendly, sizeof(friendly), NULL))
+                continue;
+
+            addComPortInfo(result, seenPorts, extractComPortFromFriendlyName(std::string(friendly)),
+                           vid, pid, "interface");
         }
 
-        // 读取友好名称，从括号中提取 COM 端口号。
-        CHAR friendly[256] = {};
-        if (!SetupDiGetDeviceRegistryPropertyA(hDevInfo, &devData, SPDRP_FRIENDLYNAME,
-            NULL, (PBYTE)friendly, sizeof(friendly), NULL))
-            continue;
-
-        std::string friendlyStr(friendly);
-        auto comPos = friendlyStr.find("(COM");
-        if (comPos == std::string::npos) continue;
-
-        auto endPos = friendlyStr.find(')', comPos);
-        if (endPos == std::string::npos) continue;
-
-        ComPortVidInfo info;
-        info.portName = friendlyStr.substr(comPos + 1, endPos - comPos - 1);
-        info.vid = vid;
-        info.pid = pid;
-        result.push_back(info);
-
-        fprintf(stderr, "[UmiGripper] COM port: %s  VID=0x%04X  PID=0x%04X\n",
-            info.portName.c_str(), info.vid, info.pid);
+        SetupDiDestroyDeviceInfoList(hDevInfo);
     }
 
-    SetupDiDestroyDeviceInfoList(hDevInfo);
+    // 部分 ESP32-S3 USB Serial/JTAG 或 CH340 设备不会出现在 GUID_DEVINTERFACE_COMPORT
+    // 枚举结果中，但设备管理器的“端口(COM和LPT)”里能看到。这里再按 Ports
+    // 设备类做一次备用枚举，保证 ESP32-CAN 串口桥也能被扫描到。
+    HDEVINFO hPortInfo = SetupDiGetClassDevsA(NULL, "Ports", NULL, DIGCF_PRESENT | DIGCF_ALLCLASSES);
+    if (hPortInfo != INVALID_HANDLE_VALUE) {
+        for (DWORD i = 0;; ++i) {
+            SP_DEVINFO_DATA devData = {};
+            devData.cbSize = sizeof(devData);
+            if (!SetupDiEnumDeviceInfo(hPortInfo, i, &devData)) break;
+
+            CHAR friendly[256] = {};
+            if (!SetupDiGetDeviceRegistryPropertyA(hPortInfo, &devData, SPDRP_FRIENDLYNAME,
+                NULL, (PBYTE)friendly, sizeof(friendly), NULL))
+                continue;
+
+            std::string portName = extractComPortFromFriendlyName(std::string(friendly));
+            if (portName.empty()) continue;
+
+            CHAR hwId[512] = {};
+            uint16_t vid = 0, pid = 0;
+            if (SetupDiGetDeviceRegistryPropertyA(hPortInfo, &devData, SPDRP_HARDWAREID,
+                NULL, (PBYTE)hwId, sizeof(hwId), NULL)) {
+                parseVidPidFromHardwareId(std::string(hwId), vid, pid);
+            }
+
+            addComPortInfo(result, seenPorts, portName, vid, pid, "ports-class");
+        }
+
+        SetupDiDestroyDeviceInfoList(hPortInfo);
+    }
+
     return result;
 }
 
@@ -255,6 +334,37 @@ bool UmiGripper::open(const std::string& port, int baudRate) {
     fprintf(stderr, "[UMI夹爪] 收到 %lu 字节:", totalRead);
     for (DWORD i = 0; i < totalRead; i++) fprintf(stderr, " %02X", rawBuf[i]);
     fprintf(stderr, "\n");
+
+    uint8_t firstFrame[kResponsePacketSize] = {};
+    if (!findUmiFrameInBuffer(rawBuf, totalRead, firstFrame)) {
+        fprintf(stderr, "[UMI夹爪] %s 未收到有效 UMI 数据帧，判定不是手动夹爪\n", port.c_str());
+        CloseHandle(hSerial_);
+        hSerial_ = INVALID_HANDLE_VALUE;
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(stateMutex_);
+        memcpy(&state_.position, &firstFrame[1], 4);
+        state_.button1 = firstFrame[5];
+        state_.button2 = firstFrame[6];
+        state_.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        state_.hasData = true;
+
+        if (!vidConfirmed_) {
+            uint8_t tail = firstFrame[kResponsePacketSize - 1];
+            if (tail == kTailRight) {
+                handSide_ = "right";
+                vidConfirmed_ = true;
+                fprintf(stderr, "[UMI夹爪 %s] 首帧尾针=0x0C -> 右手\n", portName_.c_str());
+            } else if (tail == kTailLeft) {
+                handSide_ = "left";
+                vidConfirmed_ = true;
+                fprintf(stderr, "[UMI夹爪 %s] 首帧尾针=0x0A -> 左手\n", portName_.c_str());
+            }
+        }
+    }
 
     // 恢复非阻塞超时，避免轮询线程被串口读取长时间卡住。
     timeouts.ReadIntervalTimeout = MAXDWORD;
@@ -401,7 +511,7 @@ void UmiGripper::pollLoop() {
             continue;
         }
 
-        if (buffer[0] != kPacketHead || !isValidTail(buffer[kResponsePacketSize - 1])) {
+        if (!isPlausibleUmiFrame(buffer)) {
             if (!syncFrame(buffer)) {
                 failCount++;
                 continue;
@@ -447,7 +557,7 @@ bool UmiGripper::syncFrame(uint8_t* buffer) {
             return false;
 
         memcpy(buffer, &buf[i + 1], kResponsePacketSize);
-        if (buffer[0] == kPacketHead && isValidTail(buffer[kResponsePacketSize - 1])) {
+        if (isPlausibleUmiFrame(buffer)) {
             return true;
         }
     }
